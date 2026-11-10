@@ -1,0 +1,61 @@
+name: Compilar Cabina
+
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: compilar-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compilar:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Versiones
+        run: |
+          sw_vers
+          swift --version
+
+      - name: Pruebas del modelo
+        run: swift test
+
+      - name: Compilar la app y crear el DMG
+        run: scripts/empaquetar.sh
+
+      - name: Autoprueba de la app
+        run: scripts/autoprueba.sh
+
+      - name: Guardar resultados
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cabina
+          path: |
+            build/Cabina.dmg
+            build/prueba/*.png
+            build/prueba/*.txt
+            build/prueba/*.log
+          if-no-files-found: warn
+
+      - name: Publicar el DMG
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$GITHUB_REF_NAME" = "main" ]; then
+            ETIQUETA=estable; TITULO="Cabina (estable)"; EXTRA=""
+          else
+            ETIQUETA=prueba; TITULO="Cabina (versión de prueba)"; EXTRA="--prerelease"
+          fi
+          gh release delete "$ETIQUETA" --cleanup-tag --yes 2>/dev/null || true
+          sleep 3
+          gh release create "$ETIQUETA" build/Cabina.dmg \
+            --title "$TITULO" --target "$GITHUB_SHA" $EXTRA \
+            --notes "Compilación $GITHUB_RUN_NUMBER de la rama $GITHUB_REF_NAME. Descarga Cabina.dmg, ábrelo y arrastra Cabina a Aplicaciones."
