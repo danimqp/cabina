@@ -31,6 +31,9 @@ struct VistaControl: View {
         }
         .background(Paleta.tinta)
         .foregroundStyle(Paleta.papel)
+        .onAppear {
+            DispatchQueue.main.async { NSApp.keyWindow?.makeFirstResponder(nil) }
+        }
         .confirmationDialog(
             "¿Cortar «\(motor.tituloEnPantalla)»?",
             isPresented: Binding(
@@ -39,7 +42,9 @@ struct VistaControl: View {
             ),
             titleVisibility: .visible
         ) {
-            Button("Cortar y lanzar «\(motor.funcion.pieza(motor.pendiente)?.nombre ?? "")»") {
+            Button(motor.pendiente == motor.idEnPantalla
+                   ? "Volver a empezarla"
+                   : "Cortar y lanzar «\(motor.funcion.pieza(motor.pendiente)?.nombre ?? "")»") {
                 motor.confirmarPendiente()
             }
             Button("Seguir con la actual", role: .cancel) {
@@ -65,6 +70,7 @@ struct BarraSuperior: View {
                 .font(.system(size: 15))
                 .foregroundStyle(Paleta.tenue)
                 .frame(maxWidth: 340)
+                .onSubmit { NSApp.keyWindow?.makeFirstResponder(nil) }
             Spacer()
             HStack(spacing: 7) {
                 Image(systemName: salida.abierta ? "dot.radiowaves.left.and.right" : "rectangle.slash")
@@ -251,6 +257,7 @@ struct FilaPieza: View {
                 }
                 Text(detalle)
                     .font(.system(size: 11, design: .monospaced))
+                    .lineLimit(1)
                     .foregroundStyle(falta ? Paleta.rojo : (enPantalla ? Paleta.ambar : Paleta.tenue))
             }
 
@@ -262,6 +269,7 @@ struct FilaPieza: View {
                 Label("Lanzar", systemImage: "play.fill")
             }
             .buttonStyle(BotonCabina(color: enPantalla ? Paleta.panel : Paleta.ambar, oscuro: !enPantalla))
+            .fixedSize()
             .disabled(falta)
             .help(pieza.tipo == .video ? "Proyectar este vídeo desde el principio" : "Mostrar esta imagen en el proyector")
 
@@ -303,7 +311,7 @@ struct FilaPieza: View {
         case .video:
             base = pieza.duracion.map { Tiempo.texto($0) } ?? "--:--"
         case .imagen:
-            base = "Imagen · se queda hasta que la cambies"
+            base = "Imagen fija"
         }
         if enPantalla { return "EN PANTALLA · " + base }
         if pasada { return "Ya proyectada · " + base }
@@ -320,8 +328,16 @@ struct PanelControl: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            previa
-            estado
+            HStack(alignment: .top, spacing: 18) {
+                previa
+                    .frame(minWidth: 280, maxWidth: 560)
+                    .layoutPriority(1)
+                VStack(alignment: .leading, spacing: 10) {
+                    estado
+                    cuenta
+                }
+                .frame(minWidth: 220, maxWidth: .infinity, alignment: .leading)
+            }
             tiempos
             transporte
             botonNegro
@@ -340,20 +356,20 @@ struct PanelControl: View {
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .foregroundStyle(Paleta.tenue)
                 Spacer()
-                if !salida.abierta {
-                    Label("La salida está cerrada: el público aún no ve nada", systemImage: "rectangle.slash")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Paleta.ambar)
-                }
             }
             VistaPrevia(motor: motor)
                 .aspectRatio(16 / 9, contentMode: .fit)
-                .frame(maxWidth: .infinity, maxHeight: 300)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
                         .stroke(bordePrevia, lineWidth: 2)
                 )
+            if !salida.abierta {
+                Label("Salida cerrada: el público aún no ve nada", systemImage: "rectangle.slash")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Paleta.ambar)
+                    .lineLimit(1)
+            }
         }
     }
 
@@ -368,8 +384,8 @@ struct PanelControl: View {
                 .font(.system(size: 13, weight: .semibold, design: .monospaced))
                 .foregroundStyle(motor.idEnPantalla != nil && !motor.negro ? Paleta.ambar : Paleta.tenue)
             Text(motor.tituloEnPantalla.isEmpty ? "Ninguna pieza en pantalla" : motor.tituloEnPantalla)
-                .font(.system(size: 24, weight: .bold, design: .rounded))
-                .lineLimit(1)
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .lineLimit(2)
                 .truncationMode(.middle)
         }
     }
@@ -388,20 +404,24 @@ struct PanelControl: View {
         return motor.hayFondo ? "photo" : "moon.fill"
     }
 
-    // Cuenta atrás y barra de tiempo
+    // Cuenta atrás
+    private var cuenta: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("RESTANTE")
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(Paleta.tenue)
+            Text(motor.esVideo ? "-" + Tiempo.texto(motor.restante) : "--:--")
+                .font(.system(size: 64, weight: .semibold, design: .monospaced))
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.4)
+                .foregroundStyle(colorCuenta)
+        }
+    }
+
+    // Barra de tiempo
     private var tiempos: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text(motor.esVideo ? "-" + Tiempo.texto(motor.restante) : "--:--")
-                    .font(.system(size: 76, weight: .semibold, design: .monospaced))
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.5)
-                    .foregroundStyle(colorCuenta)
-                Text("RESTANTE")
-                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(Paleta.tenue)
-            }
             Slider(
                 value: Binding(
                     get: { arrastre ?? motor.tiempo },
@@ -441,6 +461,7 @@ struct PanelControl: View {
                     .frame(minWidth: 96)
             }
             .buttonStyle(BotonCabina(color: Paleta.panel, grande: true))
+            .fixedSize()
             .disabled(!motor.esVideo)
             .help("Barra espaciadora")
 
@@ -450,6 +471,7 @@ struct PanelControl: View {
                 Label("Volver al fondo", systemImage: "stop.fill")
             }
             .buttonStyle(BotonCabina(color: Paleta.panel, grande: true))
+            .fixedSize()
             .disabled(motor.idEnPantalla == nil)
             .help("Retira la pieza y deja la imagen de fondo")
 
@@ -458,7 +480,7 @@ struct PanelControl: View {
             Image(systemName: motor.funcion.volumen == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill")
                 .foregroundStyle(Paleta.tenue)
             Slider(value: $motor.funcion.volumen, in: 0...1)
-                .frame(width: 150)
+                .frame(minWidth: 70, maxWidth: 150)
                 .help("Volumen")
             Text("\(Int((motor.funcion.volumen * 100).rounded())) %")
                 .font(.system(size: 12, design: .monospaced))
@@ -556,6 +578,7 @@ struct BotonCabina: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: grande ? 14 : 13, weight: .semibold))
+            .lineLimit(1)
             .foregroundStyle(oscuro ? Paleta.tinta : Paleta.papel)
             .padding(.horizontal, grande ? 14 : 10)
             .padding(.vertical, grande ? 9 : 6)

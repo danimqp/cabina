@@ -115,7 +115,7 @@ final class Motor: ObservableObject {
 
     /// Lanza la pieza; si hay un vídeo en marcha, pide confirmación antes de cortarlo.
     func pedirLanzar(_ id: UUID) {
-        if esVideo, reproduciendo, restante > 3, idEnPantalla != id {
+        if esVideo, reproduciendo, restante > 3 {
             pendiente = id
         } else {
             lanzar(id)
