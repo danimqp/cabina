@@ -23,10 +23,13 @@ struct VistaControl: View {
             if let aviso = motor.aviso {
                 FranjaAviso(texto: aviso)
             }
-            HStack(spacing: 0) {
-                ListaPiezas()
-                    .frame(minWidth: 380, idealWidth: 440, maxWidth: 520)
-                PanelControl()
+            GeometryReader { geo in
+                HStack(spacing: 0) {
+                    ListaPiezas()
+                        .frame(width: min(520, max(380, geo.size.width * 0.38)))
+                    PanelControl()
+                        .frame(maxWidth: .infinity)
+                }
             }
         }
         .background(Paleta.tinta)
