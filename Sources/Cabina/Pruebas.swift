@@ -13,13 +13,13 @@ enum Pruebas {
         guard !hecho, let carpeta = entorno["CABINA_PRUEBA"], let informe = entorno["CABINA_INFORME"] else { return }
         hecho = true
 
-        Task {
-            func anotar(_ correcto: Bool, _ texto: String) {
+        Task { @MainActor in
+            @MainActor func anotar(_ correcto: Bool, _ texto: String) {
                 lineas.append((correcto ? "OK    " : "FALLO ") + texto)
                 try? lineas.joined(separator: "\n").appending("\n")
                     .write(toFile: informe, atomically: true, encoding: .utf8)
             }
-            func esperar(_ segundos: Double) async {
+            @MainActor func esperar(_ segundos: Double) async {
                 try? await Task.sleep(nanoseconds: UInt64(segundos * 1_000_000_000))
             }
 
