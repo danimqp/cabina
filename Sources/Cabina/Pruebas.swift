@@ -74,6 +74,15 @@ enum Pruebas {
 
             motor.volverAlFondo()
             anotar(motor.contenido == .fondo, "volver al fondo retira la imagen")
+
+            // Deja la ventana de control a la vista para la captura
+            salida.cerrar()
+            anotar(!salida.abierta, "salida cerrada")
+            motor.seleccion = imagen.id
+            motor.lanzar(video.id)
+            await esperar(1.5)
+            anotar(motor.esVideo, "CONTROL")
+            await esperar(3)
             anotar(true, "FIN")
         }
     }

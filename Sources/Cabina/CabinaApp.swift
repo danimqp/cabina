@@ -19,7 +19,7 @@ struct CabinaApp: App {
                 .environmentObject(salida)
                 .preferredColorScheme(.dark)
                 .tint(Paleta.ambar)
-                .frame(minWidth: 1040, minHeight: 700)
+                .frame(minWidth: 980, minHeight: 660)
                 .onAppear {
                     Teclado.instalar(motor: motor)
                     Pruebas.arrancarSiProcede(motor: motor, salida: salida)

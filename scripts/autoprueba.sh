@@ -16,6 +16,11 @@ PID=$!
 sleep 4;  screencapture -x "$P/captura-1-video.png" 2>/dev/null || echo "sin captura 1"
 sleep 9;  screencapture -x "$P/captura-2-imagen.png" 2>/dev/null || echo "sin captura 2"
 for _ in $(seq 1 30); do
+  grep -q "CONTROL" "$P/informe.txt" 2>/dev/null && break
+  sleep 0.5
+done
+screencapture -x "$P/captura-3-control.png" 2>/dev/null || echo "sin captura 3"
+for _ in $(seq 1 30); do
   grep -q "FIN" "$P/informe.txt" 2>/dev/null && break
   sleep 1
 done
