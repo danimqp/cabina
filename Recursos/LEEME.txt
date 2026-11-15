@@ -1,0 +1,11 @@
+CABINA
+
+1. Arrastra Cabina a la carpeta Aplicaciones.
+
+2. La primera vez, macOS dirá que no puede verificar la app.
+   Abre Ajustes del Sistema > Privacidad y seguridad, baja hasta
+   el aviso sobre Cabina y pulsa "Abrir igualmente".
+   Solo hace falta una vez.
+
+3. Conecta el proyector como pantalla extendida (no duplicada),
+   añade tus vídeos e imágenes y pulsa "Abrir salida".
