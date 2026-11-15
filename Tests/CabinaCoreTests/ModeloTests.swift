@@ -87,6 +87,36 @@ final class ModeloTests: XCTestCase {
         XCTAssertEqual(f.volumen, 1)
     }
 
+    func testMensajeDeTexto() throws {
+        let m = Pieza.mensaje("Empezamos en 10 minutos\nGracias por venir")
+        XCTAssertEqual(m.tipo, .texto)
+        XCTAssertEqual(m.nombre, "Empezamos en 10 minutos")
+        XCTAssertEqual(m.texto, "Empezamos en 10 minutos\nGracias por venir")
+        let copia = try JSONDecoder().decode(Pieza.self, from: JSONEncoder().encode(m))
+        XCTAssertEqual(copia, m)
+    }
+
+    func testAbrirFuncionDeLaVersionAnterior() throws {
+        let antigua = #"{"nombre":"Muestra","volumen":0.8,"piezas":[{"id":"6F9619FF-8B86-D011-B42D-00C04FC964FF","nombre":"A","ruta":"/tmp/A.mp4","tipo":"video","duracion":12}]}"#
+        let f = try JSONDecoder().decode(Funcion.self, from: Data(antigua.utf8))
+        XCTAssertEqual(f.piezas.first?.duracion, 12)
+        XCTAssertNil(f.piezas.first?.posicion)
+        XCTAssertNil(f.piezas.first?.volumen)
+        XCTAssertEqual(f.musica, [])
+        XCTAssertEqual(f.volumenMusica, 0.6, accuracy: 0.001)
+    }
+
+    func testDuracionPendiente() {
+        var f = funcion(["A", "B", "C"])
+        f.piezas[0].duracion = 100
+        f.piezas[1].duracion = 50
+        f.piezas[2].duracion = 25
+        XCTAssertEqual(f.duracionPendiente(sinContar: []), 175, accuracy: 0.001)
+        XCTAssertEqual(f.duracionPendiente(sinContar: [f.piezas[0].id]), 75, accuracy: 0.001)
+        XCTAssertEqual(f.indice(f.piezas[2].id), 2)
+        XCTAssertNil(f.indice(nil))
+    }
+
     func testTextoDeTiempo() {
         XCTAssertEqual(Tiempo.texto(0), "00:00")
         XCTAssertEqual(Tiempo.texto(75.9), "01:15")

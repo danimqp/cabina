@@ -40,22 +40,26 @@ struct VistaControl: View {
         .confirmationDialog(
             "¿Cortar «\(motor.tituloEnPantalla)»?",
             isPresented: Binding(
-                get: { motor.pendiente != nil },
-                set: { if !$0 { motor.pendiente = nil } }
+                get: { motor.hayPendiente },
+                set: { if !$0 { motor.cancelarPendiente() } }
             ),
             titleVisibility: .visible
         ) {
-            Button(motor.pendiente == motor.idEnPantalla
-                   ? "Volver a empezarla"
-                   : "Cortar y lanzar «\(motor.funcion.pieza(motor.pendiente)?.nombre ?? "")»") {
+            Button(textoConfirmar) {
                 motor.confirmarPendiente()
             }
             Button("Seguir con la actual", role: .cancel) {
-                motor.pendiente = nil
+                motor.cancelarPendiente()
             }
         } message: {
             Text("Le quedan \(Tiempo.texto(motor.restante)). El público verá el corte.")
         }
+    }
+
+    private var textoConfirmar: String {
+        if motor.mensajePendiente != nil { return "Cortar y mostrar el mensaje" }
+        if motor.pendiente == motor.idEnPantalla { return "Volver a empezarla" }
+        return "Cortar y lanzar «\(motor.nombrePendiente)»"
     }
 }
 
@@ -130,24 +134,50 @@ struct ListaPiezas: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
                     Text("ORDEN DE LA FUNCIÓN")
                         .font(.system(size: 12, weight: .semibold, design: .monospaced))
                         .foregroundStyle(Paleta.tenue)
-                    Text(resumen)
-                        .font(.system(size: 13, design: .monospaced))
+                        .lineLimit(1)
+                    Spacer()
+                    Button {
+                        motor.comprobar(avisar: true)
+                    } label: {
+                        Label(motor.comprobando ? "Comprobando…" : "Comprobar", systemImage: "checkmark.shield")
+                    }
+                    .buttonStyle(BotonCabina(color: Paleta.panel))
+                    .fixedSize()
+                    .disabled(motor.funcion.piezas.isEmpty || motor.comprobando)
+                    .help("Abre cada archivo y avisa de los que no se van a poder proyectar")
+                    Button {
+                        motor.pedirArchivos()
+                    } label: {
+                        Label("Añadir", systemImage: "plus")
+                    }
+                    .buttonStyle(BotonCabina(color: Paleta.panel))
+                    .fixedSize()
                 }
-                Spacer()
-                Button {
-                    motor.pedirArchivos()
-                } label: {
-                    Label("Añadir", systemImage: "plus")
+                Text(resumen)
+                    .font(.system(size: 13, design: .monospaced))
+                    .lineLimit(1)
+                if motor.duracionPorDelante > 0 {
+                    TimelineView(.periodic(from: .now, by: 20)) { contexto in
+                        Text(textoFin(contexto.date))
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(Paleta.tenue)
+                            .lineLimit(1)
+                    }
                 }
-                .buttonStyle(BotonCabina(color: Paleta.panel))
+                if let nota = motor.nota {
+                    Label(nota, systemImage: "checkmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Paleta.verde)
+                        .lineLimit(2)
+                }
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 14)
+            .padding(.vertical, 12)
 
             if motor.funcion.piezas.isEmpty {
                 vacio
@@ -165,6 +195,12 @@ struct ListaPiezas: View {
         let n = motor.funcion.piezas.count
         let piezas = n == 1 ? "1 pieza" : "\(n) piezas"
         return "\(piezas) · \(Tiempo.texto(motor.funcion.duracionTotal)) de vídeo"
+    }
+
+    private func textoFin(_ ahora: Date) -> String {
+        let quedan = motor.duracionPorDelante
+        let fin = ahora.addingTimeInterval(quedan).formatted(date: .omitted, time: .shortened)
+        return "Quedan \(Tiempo.texto(quedan)) · sin pausas acaba a las \(fin)"
     }
 
     private var vacio: some View {
@@ -227,6 +263,13 @@ struct FilaPieza: View {
     private var enPantalla: Bool { motor.idEnPantalla == pieza.id }
     private var falta: Bool { motor.faltantes.contains(pieza.id) }
     private var pasada: Bool { motor.pasadas.contains(pieza.id) && !enPantalla }
+    private var problema: Problema? { motor.problemas[pieza.id] }
+    private var grave: Bool { falta || problema?.grave == true }
+    /// Punto guardado desde el que se puede seguir un vídeo cortado.
+    private var puntoGuardado: Double? {
+        guard pieza.tipo == .video, !enPantalla else { return nil }
+        return pieza.posicion
+    }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -235,7 +278,7 @@ struct FilaPieza: View {
                 .foregroundStyle(enPantalla ? Paleta.ambar : Paleta.tenue)
             Image(systemName: icono)
                 .frame(width: 20)
-                .foregroundStyle(falta ? Paleta.rojo : Paleta.papel)
+                .foregroundStyle(grave ? Paleta.rojo : Paleta.papel)
 
             VStack(alignment: .leading, spacing: 3) {
                 if editando == pieza.id {
@@ -261,7 +304,7 @@ struct FilaPieza: View {
                 Text(detalle)
                     .font(.system(size: 11, design: .monospaced))
                     .lineLimit(1)
-                    .foregroundStyle(falta ? Paleta.rojo : (enPantalla ? Paleta.ambar : Paleta.tenue))
+                    .foregroundStyle(grave ? Paleta.rojo : (enPantalla ? Paleta.ambar : Paleta.tenue))
             }
 
             Spacer(minLength: 6)
@@ -269,12 +312,16 @@ struct FilaPieza: View {
             Button {
                 motor.pedirLanzar(pieza.id)
             } label: {
-                Label("Lanzar", systemImage: "play.fill")
+                if let punto = puntoGuardado {
+                    Label("Seguir \(Tiempo.texto(punto))", systemImage: "arrow.uturn.right")
+                } else {
+                    Label("Lanzar", systemImage: "play.fill")
+                }
             }
             .buttonStyle(BotonCabina(color: enPantalla ? Paleta.panel : Paleta.ambar, oscuro: !enPantalla))
             .fixedSize()
             .disabled(falta)
-            .help(pieza.tipo == .video ? "Proyectar este vídeo desde el principio" : "Mostrar esta imagen en el proyector")
+            .help(ayudaLanzar)
 
             Menu {
                 acciones
@@ -294,27 +341,55 @@ struct FilaPieza: View {
 
     @ViewBuilder
     private var acciones: some View {
-        Button("Lanzar") { motor.pedirLanzar(pieza.id) }
-            .disabled(falta)
-        Button("Renombrar") { editando = pieza.id }
-        Button("Localizar archivo…") { motor.localizar(pieza.id) }
+        if let punto = puntoGuardado {
+            Button("Seguir desde \(Tiempo.texto(punto))") { motor.pedirLanzar(pieza.id) }
+                .disabled(falta)
+            Button("Lanzar desde el principio") { motor.pedirLanzar(pieza.id, desdeElPrincipio: true) }
+                .disabled(falta)
+        } else {
+            Button("Lanzar") { motor.pedirLanzar(pieza.id) }
+                .disabled(falta)
+        }
+        Button(pieza.tipo == .texto ? "Editar el texto" : "Renombrar") { editando = pieza.id }
+        if pieza.tipo != .texto {
+            Button("Localizar archivo…") { motor.localizar(pieza.id) }
+        }
         Divider()
         Button("Quitar de la lista", role: .destructive) { motor.quitar(pieza.id) }
     }
 
     private var icono: String {
-        if falta { return "exclamationmark.triangle.fill" }
-        return pieza.tipo == .video ? "film" : "photo"
+        if grave { return "exclamationmark.triangle.fill" }
+        switch pieza.tipo {
+        case .video: return "film"
+        case .imagen: return "photo"
+        case .texto: return "textformat"
+        }
+    }
+
+    private var ayudaLanzar: String {
+        if puntoGuardado != nil {
+            return "Seguir donde se cortó. Para empezar de cero, usa el menú de la pieza."
+        }
+        switch pieza.tipo {
+        case .video: return "Proyectar este vídeo desde el principio"
+        case .imagen: return "Mostrar esta imagen en el proyector"
+        case .texto: return "Mostrar este mensaje en el proyector"
+        }
     }
 
     private var detalle: String {
         if falta { return "NO SE ENCUENTRA EL ARCHIVO" }
-        let base: String
+        if let problema, problema.grave { return problema.texto }
+        var base: String
         switch pieza.tipo {
         case .video:
             base = pieza.duracion.map { Tiempo.texto($0) } ?? "--:--"
+            if let problema { base += " · " + problema.texto }
         case .imagen:
             base = "Imagen fija"
+        case .texto:
+            base = "Mensaje de texto"
         }
         if enPantalla { return "EN PANTALLA · " + base }
         if pasada { return "Ya proyectada · " + base }
@@ -328,6 +403,7 @@ struct PanelControl: View {
     @EnvironmentObject private var motor: Motor
     @EnvironmentObject private var salida: Salida
     @State private var arrastre: Double?
+    @State private var mensaje = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -344,6 +420,7 @@ struct PanelControl: View {
             tiempos
             transporte
             botonNegro
+            mensajeRapido
             Rectangle().fill(Paleta.panel).frame(height: 1)
             pie
         }
@@ -396,14 +473,14 @@ struct PanelControl: View {
     private var textoEstado: String {
         if motor.negro { return "PANTALLA EN NEGRO" }
         if motor.esVideo { return motor.reproduciendo ? "EN PANTALLA" : "PAUSADO" }
-        if motor.esImagen { return "IMAGEN EN PANTALLA" }
+        if motor.esImagen { return motor.esMensaje ? "MENSAJE EN PANTALLA" : "IMAGEN EN PANTALLA" }
         return motor.hayFondo ? "FONDO EN PANTALLA" : "PANTALLA EN NEGRO"
     }
 
     private var iconoEstado: String {
         if motor.negro { return "moon.fill" }
         if motor.esVideo { return motor.reproduciendo ? "play.fill" : "pause.fill" }
-        if motor.esImagen { return "photo.fill" }
+        if motor.esImagen { return motor.esMensaje ? "text.bubble.fill" : "photo.fill" }
         return motor.hayFondo ? "photo" : "moon.fill"
     }
 
@@ -480,12 +557,46 @@ struct PanelControl: View {
 
             Spacer()
 
-            Image(systemName: motor.funcion.volumen == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                .foregroundStyle(Paleta.tenue)
-            Slider(value: $motor.funcion.volumen, in: 0...1)
-                .frame(minWidth: 70, maxWidth: 150)
-                .help("Volumen")
-            Text("\(Int((motor.funcion.volumen * 100).rounded())) %")
+            Menu {
+                Section("El sonido de Cabina sale por") {
+                    Button {
+                        motor.elegirSalidaAudio(nil)
+                    } label: {
+                        if motor.salidaAudio == nil {
+                            Label("Salida del sistema", systemImage: "checkmark")
+                        } else {
+                            Text("Salida del sistema")
+                        }
+                    }
+                    ForEach(motor.dispositivos) { dispositivo in
+                        Button {
+                            motor.elegirSalidaAudio(dispositivo.uid)
+                        } label: {
+                            if motor.salidaAudio == dispositivo.uid {
+                                Label(dispositivo.nombre, systemImage: "checkmark")
+                            } else {
+                                Text(dispositivo.nombre)
+                            }
+                        }
+                    }
+                }
+            } label: {
+                Image(systemName: motor.volumenActual == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                    .frame(width: 24, height: 22)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Elegir por dónde suena Cabina (altavoces de la sala, HDMI…)")
+            Slider(
+                value: Binding(get: { motor.volumenActual }, set: { motor.fijarVolumen($0) }),
+                in: 0...1
+            )
+            .frame(minWidth: 70, maxWidth: 150)
+            .help(motor.volumenEsDeLaPieza
+                  ? "Volumen de este vídeo: Cabina lo recuerda para la próxima vez"
+                  : "Volumen general")
+            Text("\(Int((motor.volumenActual * 100).rounded())) %")
                 .font(.system(size: 12, design: .monospaced))
                 .foregroundStyle(Paleta.tenue)
                 .frame(width: 46, alignment: .trailing)
@@ -508,11 +619,47 @@ struct PanelControl: View {
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(BotonNegro(activo: motor.negro))
-        .help("Tapa la pantalla al instante sin perder el punto del vídeo")
+        .help("Tapa la pantalla al instante sin perder el punto del vídeo. Desde cualquier otra app: ⌃⌥⌘B")
+    }
+
+    // Mensaje de texto escrito al momento
+    private var mensajeRapido: some View {
+        let vacio = mensaje.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return HStack(spacing: 8) {
+            Image(systemName: "text.bubble")
+                .foregroundStyle(Paleta.tenue)
+            TextField("Mensaje rápido para la pantalla: «Empezamos en 10 minutos»", text: $mensaje)
+                .textFieldStyle(.plain)
+                .font(.system(size: 14))
+                .onSubmit { mostrarMensaje() }
+            Button("Mostrar") { mostrarMensaje() }
+                .buttonStyle(BotonCabina(color: Paleta.ambar, oscuro: true))
+                .fixedSize()
+                .disabled(vacio)
+                .help("Muestra el texto en el proyector, en grande sobre negro")
+            Button {
+                motor.agregarMensaje(mensaje)
+                mensaje = ""
+            } label: {
+                Label("A la lista", systemImage: "plus")
+            }
+            .buttonStyle(BotonCabina(color: Paleta.tinta))
+            .fixedSize()
+            .disabled(vacio)
+            .help("Guarda el mensaje como pieza de la lista para usarlo más tarde")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Paleta.panel, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func mostrarMensaje() {
+        motor.pedirMensaje(mensaje)
+        NSApp.keyWindow?.makeFirstResponder(nil)
     }
 
     private var pie: some View {
-        HStack(alignment: .top, spacing: 24) {
+        HStack(alignment: .top, spacing: 18) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("A CONTINUACIÓN")
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
@@ -522,16 +669,17 @@ struct PanelControl: View {
                         .font(.system(size: 15, weight: .semibold))
                         .lineLimit(1)
                         .truncationMode(.middle)
-                    Text(siguiente.tipo == .video ? (siguiente.duracion.map { Tiempo.texto($0) } ?? "--:--") : "Imagen")
+                    Text(detalle(de: siguiente))
                         .font(.system(size: 12, design: .monospaced))
                         .foregroundStyle(Paleta.tenue)
                     Button {
                         motor.lanzarSiguiente()
                     } label: {
-                        Label("Lanzar la siguiente", systemImage: "forward.end.fill")
+                        Label("Lanzarla", systemImage: "forward.end.fill")
                     }
                     .buttonStyle(BotonCabina(color: Paleta.panel))
-                    .help("⌘→")
+                    .fixedSize()
+                    .help("Lanzar la siguiente pieza de la lista (⌘→)")
                 } else {
                     Text(motor.funcion.piezas.isEmpty ? "Añade piezas a la lista" : "Fin de la lista")
                         .font(.system(size: 15))
@@ -541,27 +689,82 @@ struct PanelControl: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("FONDO ENTRE PELÍCULAS")
+                Text("FONDO ENTRE VÍDEOS")
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .foregroundStyle(Paleta.tenue)
                 Text(nombreFondo)
                     .font(.system(size: 15, weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Text("Se ve cuando termina un vídeo")
+                Text("Al terminar un vídeo")
                     .font(.system(size: 12))
                     .foregroundStyle(Paleta.tenue)
+                    .lineLimit(1)
                 HStack(spacing: 8) {
-                    Button("Elegir imagen…") { motor.pedirFondo() }
+                    Button("Elegir…") { motor.pedirFondo() }
                         .buttonStyle(BotonCabina(color: Paleta.panel))
+                        .fixedSize()
                     if motor.funcion.rutaFondo != nil {
                         Button("Quitar") { motor.quitarFondo() }
                             .buttonStyle(BotonCabina(color: Paleta.panel))
+                            .fixedSize()
                     }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("MÚSICA DE ESPERA")
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(Paleta.tenue)
+                Text(nombreMusica)
+                    .font(.system(size: 15, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(estadoMusica)
+                    .font(.system(size: 12))
+                    .foregroundStyle(motor.musicaEncendida ? Paleta.ambar : Paleta.tenue)
+                    .lineLimit(1)
+                HStack(spacing: 8) {
+                    Button {
+                        motor.alternarMusica()
+                    } label: {
+                        Label(motor.musicaEncendida ? "Parar" : "Poner",
+                              systemImage: motor.musicaEncendida ? "stop.fill" : "music.note")
+                    }
+                    .buttonStyle(BotonCabina(color: motor.musicaEncendida ? Paleta.ambar : Paleta.panel,
+                                             oscuro: motor.musicaEncendida))
+                    .fixedSize()
+                    Button("Elegir…") { motor.pedirMusica() }
+                        .buttonStyle(BotonCabina(color: Paleta.panel))
+                        .fixedSize()
+                }
+                Slider(value: $motor.funcion.volumenMusica, in: 0...1)
+                    .frame(maxWidth: 150)
+                    .help("Volumen de la música de espera")
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    private func detalle(de pieza: Pieza) -> String {
+        switch pieza.tipo {
+        case .video: return pieza.duracion.map { Tiempo.texto($0) } ?? "--:--"
+        case .imagen: return "Imagen"
+        case .texto: return "Mensaje"
+        }
+    }
+
+    private var nombreMusica: String {
+        let n = motor.funcion.musica.count
+        if n == 0 { return "Sin música" }
+        if !motor.pistaMusica.isEmpty { return motor.pistaMusica }
+        return n == 1 ? "1 canción" : "\(n) canciones"
+    }
+
+    private var estadoMusica: String {
+        if !motor.musicaEncendida { return "Apagada" }
+        return motor.esVideo ? "Callada durante el vídeo" : "Sonando"
     }
 
     private var nombreFondo: String {

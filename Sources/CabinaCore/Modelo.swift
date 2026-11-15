@@ -4,6 +4,8 @@ import Foundation
 public enum TipoPieza: String, Codable, Sendable {
     case video
     case imagen
+    /// Mensaje de texto escrito en la propia app; no tiene archivo.
+    case texto
 
     public static let extensionesVideo: Set<String> = ["mp4", "mov", "m4v"]
     public static let extensionesImagen: Set<String> = ["jpg", "jpeg", "png"]
@@ -24,13 +26,30 @@ public struct Pieza: Identifiable, Codable, Equatable, Sendable {
     public var ruta: String
     public var tipo: TipoPieza
     public var duracion: Double?
+    /// Contenido de un mensaje de texto.
+    public var texto: String?
+    /// Punto donde se cortó el vídeo la última vez, para poder seguir desde ahí.
+    public var posicion: Double?
+    /// Volumen propio de la pieza; si no tiene, usa el general.
+    public var volumen: Double?
 
-    public init(id: UUID = UUID(), nombre: String, ruta: String, tipo: TipoPieza, duracion: Double? = nil) {
+    public init(
+        id: UUID = UUID(), nombre: String, ruta: String, tipo: TipoPieza, duracion: Double? = nil,
+        texto: String? = nil, posicion: Double? = nil, volumen: Double? = nil
+    ) {
         self.id = id
         self.nombre = nombre
         self.ruta = ruta
         self.tipo = tipo
         self.duracion = duracion
+        self.texto = texto
+        self.posicion = posicion
+        self.volumen = volumen
+    }
+
+    public static func mensaje(_ texto: String) -> Pieza {
+        let titulo = texto.split(whereSeparator: \.isNewline).first.map(String.init) ?? texto
+        return Pieza(nombre: titulo, ruta: "", tipo: .texto, texto: texto)
     }
 
     public var url: URL { URL(fileURLWithPath: ruta) }
@@ -42,16 +61,24 @@ public struct Funcion: Codable, Equatable, Sendable {
     public var piezas: [Pieza]
     public var rutaFondo: String?
     public var volumen: Double
+    /// Archivos de audio de la música de espera.
+    public var musica: [String]
+    public var volumenMusica: Double
 
-    public init(nombre: String = "Función sin título", piezas: [Pieza] = [], rutaFondo: String? = nil, volumen: Double = 1) {
+    public init(
+        nombre: String = "Función sin título", piezas: [Pieza] = [], rutaFondo: String? = nil,
+        volumen: Double = 1, musica: [String] = [], volumenMusica: Double = 0.6
+    ) {
         self.nombre = nombre
         self.piezas = piezas
         self.rutaFondo = rutaFondo
         self.volumen = volumen
+        self.musica = musica
+        self.volumenMusica = volumenMusica
     }
 
     enum CodingKeys: String, CodingKey {
-        case nombre, piezas, rutaFondo, volumen
+        case nombre, piezas, rutaFondo, volumen, musica, volumenMusica
     }
 
     public init(from decoder: Decoder) throws {
@@ -60,6 +87,18 @@ public struct Funcion: Codable, Equatable, Sendable {
         piezas = try c.decodeIfPresent([Pieza].self, forKey: .piezas) ?? []
         rutaFondo = try c.decodeIfPresent(String.self, forKey: .rutaFondo)
         volumen = try c.decodeIfPresent(Double.self, forKey: .volumen) ?? 1
+        musica = try c.decodeIfPresent([String].self, forKey: .musica) ?? []
+        volumenMusica = try c.decodeIfPresent(Double.self, forKey: .volumenMusica) ?? 0.6
+    }
+
+    /// Duración de los vídeos que aún no se han proyectado.
+    public func duracionPendiente(sinContar pasadas: Set<UUID>) -> Double {
+        piezas.reduce(0) { $0 + (pasadas.contains($1.id) ? 0 : ($1.duracion ?? 0)) }
+    }
+
+    public func indice(_ id: UUID?) -> Int? {
+        guard let id else { return nil }
+        return piezas.firstIndex { $0.id == id }
     }
 
     /// Suma de las duraciones conocidas de los vídeos.

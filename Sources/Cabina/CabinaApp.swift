@@ -19,9 +19,10 @@ struct CabinaApp: App {
                 .environmentObject(salida)
                 .preferredColorScheme(.dark)
                 .tint(Paleta.ambar)
-                .frame(minWidth: 980, minHeight: 660)
+                .frame(minWidth: 980, minHeight: 720)
                 .onAppear {
                     Teclado.instalar(motor: motor)
+                    AtajosGlobales.instalar(motor: motor)
                     Pruebas.arrancarSiProcede(motor: motor, salida: salida)
                 }
         }
@@ -55,6 +56,25 @@ struct CabinaApp: App {
                 Divider()
                 Button(motor.negro ? "Quitar negro" : "Negro") { motor.alternarNegro() }
                     .keyboardShortcut("b")
+                Divider()
+                Button(motor.musicaEncendida ? "Parar la música de espera" : "Poner la música de espera") {
+                    motor.alternarMusica()
+                }
+                Button("Elegir la música de espera…") { motor.pedirMusica() }
+                Picker("Salida de sonido", selection: Binding(
+                    get: { motor.salidaAudio ?? "" },
+                    set: { motor.elegirSalidaAudio($0.isEmpty ? nil : $0) }
+                )) {
+                    Text("Salida del sistema").tag("")
+                    ForEach(motor.dispositivos) { dispositivo in
+                        Text(dispositivo.nombre).tag(dispositivo.uid)
+                    }
+                }
+                Divider()
+                Button("Comprobar la función") { motor.comprobar(avisar: true) }
+                    .disabled(motor.funcion.piezas.isEmpty)
+                Divider()
+                Text("Desde cualquier otra app: ⌃⌥⌘B negro · ⌃⌥⌘P pausa")
             }
         }
     }

@@ -1,4 +1,4 @@
-// Genera un vídeo H.264 de 5 segundos para la autoprueba. Uso: video-prueba salida.mp4
+// Genera un vídeo H.264 de 14 segundos para la autoprueba. Uso: video-prueba salida.mp4
 import AVFoundation
 import CoreVideo
 import Foundation
@@ -8,7 +8,7 @@ try? FileManager.default.removeItem(at: destino)
 
 let ancho = 640, alto = 360
 let fps: Int32 = 24
-let fotogramas = Int(fps) * 5
+let fotogramas = Int(fps) * 14
 
 let escritor = try AVAssetWriter(outputURL: destino, fileType: .mp4)
 let entrada = AVAssetWriterInput(mediaType: .video, outputSettings: [
