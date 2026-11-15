@@ -1,3 +1,19 @@
+# Proyectapp
+
+App para proyectar cortometrajes e imágenes, uno tras otro, en muestras, cineclubes y cine comunitario.
+Una sola app para **Windows y Mac**. App desarrollada por [Muyuna.org](https://muyuna.org).
+
+**Descargas:** https://github.com/danimqp/cabina/releases/tag/proyectapp
+
+- Windows: `Proyectapp-Instalador.exe`
+- Mac con Apple Silicon: `Proyectapp-Mac.dmg` · Mac con Intel: `Proyectapp-Mac-Intel.dmg`
+
+El código está en la carpeta [`multiplataforma/`](multiplataforma/LEEME.md).
+
+---
+
+Lo que sigue describe **Cabina**, la versión anterior solo para Mac (carpetas `Sources/` y `scripts/`), que se conserva mientras Proyectapp termina de validarse en Mac.
+
 # Cabina
 
 Aplicación para Mac que proyecta cortometrajes e imágenes, uno tras otro, en muestras, festivales y cineclubes.
