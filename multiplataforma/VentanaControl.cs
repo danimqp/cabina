@@ -262,9 +262,10 @@ public sealed class VentanaControl : Window
         tiempos.Children.Add(total);
 
         Estilo(botonPausa, Paleta.Panel, grande: true);
-        botonPausa.MinWidth = 130;
+        botonPausa.MinWidth = 120;
+        ToolTip.SetTip(botonFondo, "Retira la pieza y deja la pantalla del público en negro");
         botonPausa.Click += (_, _) => motor.AlternarPausa();
-        botonFondo.Content = "■  Quitar de la pantalla";
+        botonFondo.Content = "■  Quitar";
         Estilo(botonFondo, Paleta.Panel, grande: true);
         botonFondo.Click += (_, _) => motor.VolverAlFondo();
 
