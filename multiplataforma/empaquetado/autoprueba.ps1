@@ -37,7 +37,7 @@ for ($i = 0; $i -lt 700; $i++) {
                 }
             }
         }
-        if ($lineas -match "FIN") { break }
+        if ($lineas -cmatch "^OK +FIN$") { break }
     }
     if ($p.HasExited) { break }
     Start-Sleep -Milliseconds 300
@@ -58,6 +58,6 @@ if (-not $viva) {
     exit 1
 }
 $texto = if (Test-Path $informe) { Get-Content $informe -Raw } else { "" }
-if ($texto -notmatch "FIN") { Write-Host "La autoprueba no terminó"; exit 1 }
+if ($texto -cnotmatch "(?m)^OK +FIN\s*$") { Write-Host "La autoprueba no terminó"; exit 1 }
 if ($texto -match "(?m)^FALLO") { Write-Host "Hay comprobaciones fallidas"; exit 1 }
 Write-Host "Autoprueba superada"
