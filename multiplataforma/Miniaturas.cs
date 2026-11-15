@@ -56,7 +56,16 @@ public static class Miniaturas
         }
     }
 
-    private static int Alinear(int valor) => valor % 32 == 0 ? valor : (valor / 32 + 1) * 32;
+    // Los fotogramas se sacan con un motor VLC aparte, sin ventana ni sonido, y de uno en uno.
+    // No se usan funciones de retorno hacia la app: VLC escribe una imagen en disco y la app la lee.
+    private static readonly SemaphoreSlim puerta = new(1, 1);
+    private static LibVLC? motorDeFotogramas;
+    private static readonly string carpeta = Path.Combine(Path.GetTempPath(), "Proyectapp");
+
+    private static LibVLC MotorDeFotogramas() =>
+        motorDeFotogramas ??= new LibVLC(
+            "--vout=dummy", "--no-audio", "--avcodec-hw=none", "--no-video-title-show", "--no-osd",
+            "--no-snapshot-preview", "--no-sub-autodetect-file", "--quiet");
 
     /// Un fotograma del segundo indicado, reducido para caber en `lado` píxeles.
     public static async Task<Bitmap?> Fotograma(LibVLC vlc, string ruta, double segundo, DatosVideo datos, int lado)
@@ -64,62 +73,51 @@ public static class Miniaturas
         if (!datos.ConImagen || datos.Ancho <= 0 || datos.Alto <= 0) return null;
         var escala = Math.Min(1.0, (double)lado / Math.Max(datos.Ancho, datos.Alto));
         var ancho = Math.Max(16, (int)(datos.Ancho * escala) / 2 * 2);
-        var alto = Math.Max(16, (int)(datos.Alto * escala) / 2 * 2);
-        // VLC escribe en bloques de 32: el búfer debe redondearse hacia arriba o se sale de la memoria.
-        var paso = Alinear(ancho * 4);
-        var lineas = Alinear(alto);
-        var memoria = Marshal.AllocHGlobal(paso * lineas + 4096);
+        var destino = Path.Combine(carpeta, $"fotograma-{Guid.NewGuid():N}.png");
+        await puerta.WaitAsync();
         MediaPlayer? reproductor = null;
         try
         {
-            var listo = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var mostrados = 0;
-            MediaPlayer.LibVLCVideoLockCb bloquear = (opaco, planos) =>
+            Directory.CreateDirectory(carpeta);
+            var motor = MotorDeFotogramas();
+            var conImagen = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            reproductor = new MediaPlayer(motor) { EnableKeyInput = false, EnableMouseInput = false };
+            reproductor.Vout += (_, e) =>
             {
-                Marshal.WriteIntPtr(planos, memoria);
-                return IntPtr.Zero;
+                if (e.Count > 0) conImagen.TrySetResult(true);
             };
-            MediaPlayer.LibVLCVideoDisplayCb mostrar = (opaco, imagen) =>
+            reproductor.EncounteredError += (_, _) => conImagen.TrySetResult(false);
+            reproductor.EndReached += (_, _) => conImagen.TrySetResult(false);
+            using (var medio = new Media(motor, ruta, FromType.FromPath))
             {
-                if (Interlocked.Increment(ref mostrados) >= 2) listo.TrySetResult(true);
-            };
-            reproductor = new MediaPlayer(vlc) { Mute = true };
-            reproductor.SetVideoFormat("RV32", (uint)ancho, (uint)alto, (uint)paso);
-            reproductor.SetVideoCallbacks(bloquear, null, mostrar);
-            reproductor.EncounteredError += (_, _) => listo.TrySetResult(false);
-            reproductor.EndReached += (_, _) => listo.TrySetResult(false);
-            using (var medio = new Media(vlc, ruta, FromType.FromPath))
-            {
-                // Decodificación por software: con la aceleración de la tarjeta gráfica, sacar fotogramas a memoria puede cerrar la app.
-                medio.AddOption(":avcodec-hw=none");
                 medio.AddOption(":no-audio");
                 medio.AddOption(":no-spu");
-                medio.AddOption(":no-sub-autodetect-file");
                 medio.AddOption(FormattableString.Invariant($":start-time={Math.Max(0, segundo):0.###}"));
                 reproductor.Play(medio);
             }
-            var ganadora = await Task.WhenAny(listo.Task, Task.Delay(6000));
-            var conseguido = ganadora == listo.Task && listo.Task.Result;
-            var aDetener = reproductor;
-            await Task.Run(() => aDetener.Stop());
-            GC.KeepAlive(bloquear);
-            GC.KeepAlive(mostrar);
-            if (!conseguido) return null;
-
-            var mapa = new WriteableBitmap(new PixelSize(ancho, alto), new Vector(96, 96), PixelFormat.Bgra8888, AlphaFormat.Opaque);
-            using (var cerrojo = mapa.Lock())
+            var ganadora = await Task.WhenAny(conImagen.Task, Task.Delay(7000));
+            byte[]? bytes = null;
+            if (ganadora == conImagen.Task && conImagen.Task.Result)
             {
-                unsafe
+                for (var intento = 0; intento < 8 && bytes == null; intento++)
                 {
-                    for (var fila = 0; fila < alto; fila++)
+                    await Task.Delay(150);
+                    if (!reproductor.TakeSnapshot(0, destino, (uint)ancho, 0)) continue;
+                    for (var espera = 0; espera < 10 && bytes == null; espera++)
                     {
-                        Buffer.MemoryCopy(
-                            (void*)(memoria + fila * paso), (void*)(cerrojo.Address + fila * cerrojo.RowBytes),
-                            cerrojo.RowBytes, Math.Min(paso, cerrojo.RowBytes));
+                        await Task.Delay(60);
+                        try
+                        {
+                            if (File.Exists(destino) && new FileInfo(destino).Length > 0) bytes = await File.ReadAllBytesAsync(destino);
+                        }
+                        catch
+                        {
+                            bytes = null;
+                        }
                     }
                 }
             }
-            return mapa;
+            return bytes == null ? null : new Bitmap(new MemoryStream(bytes));
         }
         catch
         {
@@ -127,14 +125,14 @@ public static class Miniaturas
         }
         finally
         {
-            // Se detiene antes de liberar la memoria: VLC no debe escribir en un búfer ya devuelto.
             var aCerrar = reproductor;
             if (aCerrar != null)
             {
                 try { await Task.Run(() => aCerrar.Stop()); } catch { /* ya detenido */ }
                 try { aCerrar.Dispose(); } catch { /* ya cerrado */ }
             }
-            Marshal.FreeHGlobal(memoria);
+            try { File.Delete(destino); } catch { /* temporal */ }
+            puerta.Release();
         }
     }
 
