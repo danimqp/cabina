@@ -90,6 +90,8 @@ public static class Miniaturas
             reproductor.EndReached += (_, _) => listo.TrySetResult(false);
             using (var medio = new Media(vlc, ruta, FromType.FromPath))
             {
+                // Decodificación por software: con la aceleración de la tarjeta gráfica, sacar fotogramas a memoria puede cerrar la app.
+                medio.AddOption(":avcodec-hw=none");
                 medio.AddOption(":no-audio");
                 medio.AddOption(":no-spu");
                 medio.AddOption(":no-sub-autodetect-file");

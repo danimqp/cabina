@@ -558,9 +558,23 @@ public sealed class Motor : IDisposable
         {
             try
             {
+                try { File.Delete(destino); } catch { /* se sobrescribe */ }
                 if (!reproductor.TakeSnapshot(0, destino, 480, 0)) return;
-                Thread.Sleep(120);
-                var datos = File.ReadAllBytes(destino);
+                // VLC escribe el archivo un instante después de aceptar la orden.
+                byte[]? datos = null;
+                for (var intento = 0; intento < 12 && datos == null; intento++)
+                {
+                    Thread.Sleep(80);
+                    try
+                    {
+                        if (File.Exists(destino) && new FileInfo(destino).Length > 0) datos = File.ReadAllBytes(destino);
+                    }
+                    catch
+                    {
+                        datos = null;
+                    }
+                }
+                if (datos == null) return;
                 var imagen = new Bitmap(new MemoryStream(datos));
                 Dispatcher.UIThread.Post(() =>
                 {
