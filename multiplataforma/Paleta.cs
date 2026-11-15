@@ -1,19 +1,22 @@
 using Avalonia.Media;
 
-namespace Cabina;
+namespace Proyectapp;
 
-/// Colores de Cabina, los mismos que en la versión de Mac.
+/// Colores de Proyectapp, tomados de su logo: verde oscuro, lima y crema.
 public static class Paleta
 {
-    public static readonly IBrush Tinta = Pincel("#0E1417");
-    public static readonly IBrush Pizarra = Pincel("#171F22");
-    public static readonly IBrush Panel = Pincel("#20272B");
-    public static readonly IBrush Papel = Pincel("#E6E3D6");
-    public static readonly IBrush Tenue = Pincel("#8CE6E3D6");
+    public static readonly IBrush Tinta = Pincel("#0B1613");
+    public static readonly IBrush Pizarra = Pincel("#10201B");
+    public static readonly IBrush Panel = Pincel("#1B3029");
+    public static readonly IBrush Papel = Pincel("#F1EDDF");
+    public static readonly IBrush Tenue = Pincel("#99F1EDDF");
+    /// Acento: lo que está en pantalla y las acciones principales.
+    public static readonly IBrush Lima = Pincel("#D2D25A");
+    public static readonly IBrush LimaSuave = Pincel("#33D2D25A");
+    /// Solo para avisos que piden atención.
     public static readonly IBrush Ambar = Pincel("#F0A333");
-    public static readonly IBrush AmbarSuave = Pincel("#38F0A333");
-    public static readonly IBrush Verde = Pincel("#5EBF8F");
-    public static readonly IBrush Rojo = Pincel("#D95B4E");
+    /// Solo para errores graves.
+    public static readonly IBrush Rojo = Pincel("#E0685A");
 
     public static readonly FontFamily Mono = new("Consolas, Menlo, Courier New, monospace");
 

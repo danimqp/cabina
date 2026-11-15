@@ -1,5 +1,5 @@
 # Arranca la app publicada con los medios de prueba y comprueba su informe (Windows).
-param([string]$Exe = "salida\Cabina\Cabina.exe")
+param([string]$Exe = "salida\Proyectapp\Proyectapp.exe")
 $ErrorActionPreference = "Continue"
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 
@@ -19,12 +19,12 @@ function Capturar([string]$ruta) {
     } catch { Write-Host "sin captura: $_" }
 }
 
-$env:CABINA_PRUEBA = (Resolve-Path "pruebas\medios").Path
-$env:CABINA_INFORME = $informe
+$env:PROYECTAPP_PRUEBA = (Resolve-Path "pruebas\medios").Path
+$env:PROYECTAPP_INFORME = $informe
 $p = Start-Process -FilePath $Exe -ArgumentList "--autoprueba" -PassThru
 
 $hechas = @()
-for ($i = 0; $i -lt 400; $i++) {
+for ($i = 0; $i -lt 700; $i++) {
     if (Test-Path $informe) {
         $lineas = Get-Content $informe -ErrorAction SilentlyContinue
         foreach ($l in $lineas) {

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
-  <assemblyIdentity version="1.0.0.0" name="Cabina"/>
+  <assemblyIdentity version="1.0.0.0" name="Proyectapp"/>
   <!-- Necesario para incrustar la superficie de vídeo de VLC dentro de la ventana. -->
   <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
     <application>

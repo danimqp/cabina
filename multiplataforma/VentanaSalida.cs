@@ -1,11 +1,12 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform;
 using LibVLCSharp.Avalonia;
 
-namespace Cabina;
+namespace Proyectapp;
 
 /// La ventana del público: solo vídeo, imagen o negro. Nunca controles.
 public sealed class VentanaSalida : Window
@@ -20,7 +21,7 @@ public sealed class VentanaSalida : Window
     {
         this.motor = motor;
         EnProyector = proyector != null;
-        Title = "Salida de Cabina";
+        Title = "Salida de Proyectapp";
         Background = Brushes.Black;
 
         video = new VideoView { MediaPlayer = motor.Reproductor };
@@ -49,6 +50,7 @@ public sealed class VentanaSalida : Window
             Height = 540;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
         }
+        ShowActivated = false;
 
         motor.Cambio += Aplicar;
         Closed += (_, _) => motor.Cambio -= Aplicar;
@@ -59,27 +61,28 @@ public sealed class VentanaSalida : Window
     private void Aplicar()
     {
         var verVideo = motor.EsVideo && !motor.Negro;
-        var verImagen = motor.EsImagen && !motor.Negro && motor.ImagenVisible != null;
-        if (imagen.Source != (verImagen ? motor.ImagenVisible : null))
-        {
-            imagen.Source = verImagen ? motor.ImagenVisible : null;
-        }
-        if (imagen.IsVisible != verImagen) imagen.IsVisible = verImagen;
+        var fija = !motor.EsVideo && !motor.Negro ? motor.ImagenVisible : null;
+        if (!ReferenceEquals(imagen.Source, fija)) imagen.Source = fija;
+        if (imagen.IsVisible != (fija != null)) imagen.IsVisible = fija != null;
+
         // No se usa IsVisible: la superficie debe existir siempre para que VLC no abra una ventana propia.
         // Fuera de vídeo se reduce a un punto negro en una esquina.
         if (verVideo)
         {
-            video.Width = double.NaN;
-            video.Height = double.NaN;
-            video.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch;
-            video.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch;
+            if (!double.IsNaN(video.Width))
+            {
+                video.Width = double.NaN;
+                video.Height = double.NaN;
+                video.HorizontalAlignment = HorizontalAlignment.Stretch;
+                video.VerticalAlignment = VerticalAlignment.Stretch;
+            }
         }
-        else
+        else if (double.IsNaN(video.Width))
         {
             video.Width = 1;
             video.Height = 1;
-            video.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left;
-            video.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top;
+            video.HorizontalAlignment = HorizontalAlignment.Left;
+            video.VerticalAlignment = VerticalAlignment.Top;
         }
     }
 }

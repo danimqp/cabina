@@ -3,11 +3,11 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 P="$PWD/salida/prueba"; rm -rf "$P"; mkdir -p "$P"
-CABINA_PRUEBA="$PWD/pruebas/medios" CABINA_INFORME="$P/informe.txt" \
-  "salida/Cabina VLC.app/Contents/MacOS/Cabina" --autoprueba > "$P/salida.log" 2>&1 &
+PROYECTAPP_PRUEBA="$PWD/pruebas/medios" PROYECTAPP_INFORME="$P/informe.txt" \
+  "salida/Proyectapp.app/Contents/MacOS/Proyectapp" --autoprueba > "$P/salida.log" 2>&1 &
 PID=$!
 HECHAS=""
-for _ in $(seq 1 400); do
+for _ in $(seq 1 700); do
   if [ -f "$P/informe.txt" ]; then
     for NOMBRE in $(grep "^CAPTURA " "$P/informe.txt" | cut -d' ' -f2); do
       case " $HECHAS " in *" $NOMBRE "*) ;; *)
