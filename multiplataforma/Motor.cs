@@ -973,7 +973,7 @@ public sealed class Motor : IDisposable
                 {
                     if (pieza.Tipo == TipoPieza.Texto)
                     {
-                        imagen = Rotulo.Imagen(pieza.Texto ?? pieza.Nombre).CreateScaledBitmap(new Avalonia.PixelSize(320, 180));
+                        imagen = Rotulo.Imagen(pieza.Texto ?? pieza.Nombre, escala: 1.0 / 6);
                     }
                     else if (pieza.Tipo == TipoPieza.Imagen)
                     {

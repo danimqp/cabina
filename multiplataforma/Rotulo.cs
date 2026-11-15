@@ -8,9 +8,11 @@ namespace Proyectapp;
 /// Dibuja un mensaje centrado, en claro sobre negro, a tamaño de proyección.
 public static class Rotulo
 {
-    public static Bitmap Imagen(string texto, bool cifrasFijas = false)
+    /// `escala` menor que 1 dibuja el mismo rótulo en pequeño (para miniaturas), sin pasar por una copia reducida.
+    public static Bitmap Imagen(string texto, bool cifrasFijas = false, double escala = 1)
     {
-        const int ancho = 1920, alto = 1080;
+        var ancho = Math.Max(16, (int)Math.Round(1920 * escala));
+        var alto = Math.Max(9, (int)Math.Round(1080 * escala));
         var lienzo = new RenderTargetBitmap(new PixelSize(ancho, alto), new Vector(96, 96));
         using var dibujo = lienzo.CreateDrawingContext();
         dibujo.FillRectangle(Brushes.Black, new Rect(0, 0, ancho, alto));
@@ -18,8 +20,10 @@ public static class Rotulo
         var familia = cifrasFijas ? Paleta.Mono : FontFamily.Default;
         var letra = new Typeface(familia, FontStyle.Normal, FontWeight.Bold);
         var color = new SolidColorBrush(Color.Parse("#F1EDDF"));
-        const double cajaAncho = 1580, cajaAlto = 820;
-        double punto = 170;
+        double cajaAncho = 1580 * escala, cajaAlto = 820 * escala;
+        var punto = 170 * escala;
+        var minimo = 40 * escala;
+        var paso = 10 * escala;
         FormattedText formato;
         while (true)
         {
@@ -28,8 +32,8 @@ public static class Rotulo
                 MaxTextWidth = cajaAncho,
                 TextAlignment = TextAlignment.Center,
             };
-            if (formato.Height <= cajaAlto || punto <= 40) break;
-            punto -= 10;
+            if (formato.Height <= cajaAlto || punto <= minimo) break;
+            punto -= paso;
         }
         dibujo.DrawText(formato, new Point((ancho - cajaAncho) / 2, (alto - formato.Height) / 2));
         return lienzo;

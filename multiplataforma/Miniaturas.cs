@@ -144,7 +144,8 @@ public static class Miniaturas
         }
     }
 
-    /// Abre una imagen reducida a `lado` píxeles de ancho como mucho.
+    /// Abre una imagen ya reducida a `lado` píxeles de ancho. Se decodifica directamente a ese tamaño:
+    /// la copia no depende de la imagen original ni de su memoria.
     public static Bitmap? ImagenReducida(string ruta, int lado)
     {
         try
@@ -152,11 +153,10 @@ public static class Miniaturas
             if (!Formatos.EsArchivoNormal(ruta)) return null;
             using var flujo = File.OpenRead(ruta);
             var completa = new Bitmap(flujo);
-            if (completa.PixelSize.Width <= lado && completa.PixelSize.Height <= lado) return completa;
-            var escala = (double)lado / Math.Max(completa.PixelSize.Width, completa.PixelSize.Height);
-            var reducida = completa.CreateScaledBitmap(
-                new PixelSize(Math.Max(1, (int)(completa.PixelSize.Width * escala)), Math.Max(1, (int)(completa.PixelSize.Height * escala))),
-                BitmapInterpolationMode.HighQuality);
+            if (completa.PixelSize.Width <= lado) return completa;
+            // Más ancha de lo necesario: se vuelve a leer del archivo ya reducida, sin ampliar nunca las pequeñas.
+            flujo.Position = 0;
+            var reducida = Bitmap.DecodeToWidth(flujo, lado, BitmapInterpolationMode.MediumQuality);
             completa.Dispose();
             return reducida;
         }
