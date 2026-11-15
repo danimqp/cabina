@@ -57,6 +57,7 @@ struct VistaControl: View {
     }
 
     private var textoConfirmar: String {
+        if motor.cuentaPendiente != nil { return "Cortar y mostrar la cuenta atrás" }
         if motor.mensajePendiente != nil { return "Cortar y mostrar el mensaje" }
         if motor.pendiente == motor.idEnPantalla { return "Volver a empezarla" }
         return "Cortar y lanzar «\(motor.nombrePendiente)»"
@@ -189,6 +190,7 @@ struct ListaPiezas: View {
         .dropDestination(for: URL.self) { urls, _ in
             motor.agregar(urls) > 0
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) { Creditos() }
     }
 
     private var resumen: String {
@@ -354,6 +356,25 @@ struct FilaPieza: View {
         if pieza.tipo != .texto {
             Button("Localizar archivo…") { motor.localizar(pieza.id) }
         }
+        if pieza.tipo == .video {
+            Divider()
+            if pieza.subtitulos == nil {
+                Button("Añadir subtítulos (.srt)…") { motor.pedirSubtitulos(pieza.id) }
+            } else {
+                Button("Cambiar subtítulos…") { motor.pedirSubtitulos(pieza.id) }
+                Button("Quitar subtítulos") { motor.quitarSubtitulos(pieza.id) }
+            }
+            Button(pieza.encadena == true ? "No lanzar la siguiente al terminar" : "Al terminar, lanzar sola la siguiente") {
+                motor.alternarEncadenado(pieza.id)
+            }
+            if enPantalla {
+                Button("Empezar siempre desde este punto") { motor.marcarInicio() }
+                Button("Terminar siempre en este punto") { motor.marcarFin() }
+            }
+            if pieza.inicio != nil || pieza.fin != nil {
+                Button("Quitar el recorte") { motor.quitarRecorte(pieza.id) }
+            }
+        }
         Divider()
         Button("Quitar de la lista", role: .destructive) { motor.quitar(pieza.id) }
     }
@@ -386,6 +407,9 @@ struct FilaPieza: View {
         case .video:
             base = pieza.duracion.map { Tiempo.texto($0) } ?? "--:--"
             if let problema { base += " · " + problema.texto }
+            if pieza.subtitulos != nil { base += " · subt." }
+            if pieza.inicio != nil || pieza.fin != nil { base += " · recortado" }
+            if pieza.encadena == true { base += " · sigue sola" }
         case .imagen:
             base = "Imagen fija"
         case .texto:
@@ -628,7 +652,7 @@ struct PanelControl: View {
         return HStack(spacing: 8) {
             Image(systemName: "text.bubble")
                 .foregroundStyle(Paleta.tenue)
-            TextField("Mensaje rápido: «Empezamos en 10 minutos»", text: $mensaje)
+            TextField("Mensaje rápido: «Hoy, conversatorio»", text: $mensaje)
                 .textFieldStyle(.plain)
                 .font(.system(size: 14))
                 .onSubmit { mostrarMensaje() }
@@ -637,6 +661,22 @@ struct PanelControl: View {
                 .fixedSize()
                 .disabled(vacio)
                 .help("Muestra el texto en el proyector, en grande sobre negro")
+            Menu {
+                Section("Cuenta atrás en pantalla") {
+                    ForEach([1, 3, 5, 10, 15, 20, 30], id: \.self) { minutos in
+                        Button(minutos == 1 ? "1 minuto" : "\(minutos) minutos") {
+                            motor.pedirCuenta(minutos: minutos, titulo: mensaje)
+                            NSApp.keyWindow?.makeFirstResponder(nil)
+                        }
+                    }
+                }
+            } label: {
+                Label("Cuenta atrás", systemImage: "timer")
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Muestra una cuenta atrás. Si has escrito un texto, sale encima («Volvemos en»); si no, «Empezamos en».")
             Button {
                 motor.agregarMensaje(mensaje)
                 mensaje = ""
@@ -770,6 +810,90 @@ struct PanelControl: View {
     private var nombreFondo: String {
         guard let ruta = motor.funcion.rutaFondo else { return "Negro" }
         return URL(fileURLWithPath: ruta).lastPathComponent
+    }
+}
+
+// MARK: Créditos
+
+enum Marca {
+    static let logo: NSImage? = Bundle.main.url(forResource: "muyuna", withExtension: "png")
+        .flatMap { NSImage(contentsOf: $0) }
+    static let web = URL(string: "https://muyuna.org")
+}
+
+/// Pie de la lista: logo de Muyuna y autoría.
+struct Creditos: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            if let logo = Marca.logo {
+                Image(nsImage: logo)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .frame(height: 46)
+                    .accessibilityLabel("Muyuna")
+            }
+            VStack(alignment: .leading, spacing: 1) {
+                Text("App desarrollada por")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Paleta.tenue)
+                if let web = Marca.web {
+                    Link("Muyuna.org", destination: web)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Paleta.papel)
+                }
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity)
+        .background(Paleta.pizarra)
+        .overlay(alignment: .top) {
+            Rectangle().fill(Paleta.panel).frame(height: 1)
+        }
+    }
+}
+
+/// Control mínimo que flota sobre las demás apps mientras se proyecta.
+struct VistaMini: View {
+    @EnvironmentObject private var motor: Motor
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(motor.negro ? "PANTALLA EN NEGRO" : (motor.tituloEnPantalla.isEmpty ? "Fondo en pantalla" : motor.tituloEnPantalla))
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(motor.esVideo ? "-" + Tiempo.texto(motor.restante) : "--:--")
+                    .font(.system(size: 26, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(motor.esVideo && motor.restante <= 30 ? Paleta.ambar : Paleta.papel)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Button {
+                motor.alternarReproduccion()
+            } label: {
+                Image(systemName: motor.reproduciendo ? "pause.fill" : "play.fill")
+                    .frame(width: 22, height: 22)
+            }
+            .buttonStyle(BotonCabina(color: Paleta.panel, grande: true))
+            .disabled(!motor.esVideo)
+            .help("Pausar o reanudar")
+            Button {
+                motor.alternarNegro()
+            } label: {
+                Text(motor.negro ? "QUITAR" : "NEGRO")
+                    .frame(minWidth: 58)
+            }
+            .buttonStyle(BotonCabina(color: motor.negro ? Paleta.ambar : Color.black, oscuro: motor.negro, grande: true))
+            .help("Poner o quitar negro")
+        }
+        .padding(12)
+        .frame(width: 330)
+        .background(Paleta.tinta)
+        .foregroundStyle(Paleta.papel)
+        .preferredColorScheme(.dark)
     }
 }
 

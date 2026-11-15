@@ -23,11 +23,15 @@ struct CabinaApp: App {
                 .onAppear {
                     Teclado.instalar(motor: motor)
                     AtajosGlobales.instalar(motor: motor)
+                    MiniControl.instalar(motor: motor, salida: salida)
                     Pruebas.arrancarSiProcede(motor: motor, salida: salida)
                 }
         }
         .defaultSize(width: 1240, height: 800)
         .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("Acerca de Cabina") { Creditos.mostrarAcercaDe() }
+            }
             CommandGroup(replacing: .newItem) {
                 Button("Nueva función") { motor.nuevaFuncion() }
                     .keyboardShortcut("n")
@@ -35,6 +39,8 @@ struct CabinaApp: App {
                     .keyboardShortcut("o")
                 Button("Guardar función como…") { motor.guardarFuncionComo() }
                     .keyboardShortcut("s")
+                Button("Reunir archivos en una carpeta…") { motor.reunirArchivos() }
+                    .disabled(motor.funcion.piezas.isEmpty || motor.copiando)
                 Divider()
                 Button("Añadir archivos…") { motor.pedirArchivos() }
                     .keyboardShortcut("i")
@@ -100,4 +106,83 @@ enum Teclado {
             return consumido ? nil : evento
         }
     }
+}
+
+extension Creditos {
+    @MainActor
+    static func mostrarAcercaDe() {
+        let parrafo = NSMutableParagraphStyle()
+        parrafo.alignment = .center
+        let creditos = NSMutableAttributedString(
+            string: "Proyección de cortometrajes para muestras, cineclubes y cine comunitario.\n\nApp desarrollada por ",
+            attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.labelColor, .paragraphStyle: parrafo]
+        )
+        var enlace: [NSAttributedString.Key: Any] = [.font: NSFont.boldSystemFont(ofSize: 11), .paragraphStyle: parrafo]
+        if let web = Marca.web { enlace[.link] = web }
+        creditos.append(NSAttributedString(string: "Muyuna.org", attributes: enlace))
+        NSApp.orderFrontStandardAboutPanel(options: [.credits: creditos])
+        NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
+/// Panel flotante que aparece al pasar a otra app con la salida abierta, y se esconde al volver.
+@MainActor
+enum MiniControl {
+    private static var panel: NSPanel?
+    private static weak var motor: Motor?
+    private static weak var salida: Salida?
+    private static var observadores: [NSObjectProtocol] = []
+
+    static func instalar(motor: Motor, salida: Salida) {
+        guard observadores.isEmpty else { return }
+        self.motor = motor
+        self.salida = salida
+        let centro = NotificationCenter.default
+        observadores.append(centro.addObserver(
+            forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
+        ) { _ in
+            MainActor.assumeIsolated { mostrar() }
+        })
+        observadores.append(centro.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { _ in
+            MainActor.assumeIsolated { ocultar() }
+        })
+    }
+
+    static func mostrar() {
+        guard let motor, let salida, salida.abierta else { return }
+        if panel == nil {
+            let nuevo = NSPanel(
+                contentRect: NSRect(x: 0, y: 0, width: 330, height: 70),
+                styleMask: [.nonactivatingPanel, .titled, .utilityWindow, .fullSizeContentView],
+                backing: .buffered, defer: false
+            )
+            nuevo.title = "Cabina"
+            nuevo.titleVisibility = .hidden
+            nuevo.titlebarAppearsTransparent = true
+            nuevo.isFloatingPanel = true
+            nuevo.level = .floating
+            nuevo.hidesOnDeactivate = false
+            nuevo.becomesKeyOnlyIfNeeded = true
+            nuevo.isMovableByWindowBackground = true
+            nuevo.isReleasedWhenClosed = false
+            nuevo.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+            let vista = NSHostingView(rootView: VistaMini().environmentObject(motor))
+            nuevo.contentView = vista
+            nuevo.setContentSize(vista.fittingSize)
+            let control = NSApp.windows.first { $0.canBecomeMain && $0.title == "Cabina" }?.screen ?? NSScreen.main
+            if let marco = control?.visibleFrame {
+                nuevo.setFrameOrigin(NSPoint(x: marco.maxX - nuevo.frame.width - 20, y: marco.minY + 20))
+            }
+            panel = nuevo
+        }
+        panel?.orderFrontRegardless()
+    }
+
+    static func ocultar() {
+        panel?.orderOut(nil)
+    }
+
+    static var visible: Bool { panel?.isVisible ?? false }
 }

@@ -18,6 +18,9 @@ final class EscenaView: NSView {
     private let capaImagen = CALayer()
     private let capaVideo: CALayer
     private let capaNegro = CALayer()
+    private let capaSubtitulo = CATextLayer()
+    private var textoSubtitulo = ""
+    private var suscripcionSubtitulo: AnyCancellable?
     private var suscripcion: AnyCancellable?
     private var reloj: Timer?
     private var cursorOculto = false
@@ -47,10 +50,24 @@ final class EscenaView: NSView {
         capaNegro.backgroundColor = NSColor.black.cgColor
         capaNegro.opacity = 0
         capaVideo.isHidden = true
-        for capa in [capaImagen, capaVideo, capaNegro] {
-            capa.frame = bounds
-            capa.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+        capaSubtitulo.isWrapped = true
+        capaSubtitulo.alignmentMode = .center
+        capaSubtitulo.contentsScale = 2
+        capaSubtitulo.shadowColor = NSColor.black.cgColor
+        capaSubtitulo.shadowOpacity = 1
+        capaSubtitulo.shadowRadius = 3
+        capaSubtitulo.shadowOffset = .zero
+        capaSubtitulo.isHidden = true
+        for capa in [capaImagen, capaVideo, capaSubtitulo, capaNegro] {
+            if capa !== capaSubtitulo {
+                capa.frame = bounds
+                capa.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+            }
             raiz.addSublayer(capa)
+        }
+        suscripcionSubtitulo = motor.$subtitulo.sink { [weak self] texto in
+            self?.textoSubtitulo = texto
+            self?.colocarSubtitulo()
         }
 
         suscripcion = Publishers.CombineLatest3(motor.$contenido, motor.$imagenVisible, motor.$negro)
@@ -93,6 +110,36 @@ final class EscenaView: NSView {
             capa.frame = bounds
         }
         CATransaction.commit()
+        colocarSubtitulo()
+    }
+
+    /// Dibuja el subtítulo centrado en la parte baja, con tamaño proporcional a la pantalla.
+    private func colocarSubtitulo() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        guard !textoSubtitulo.isEmpty, bounds.height > 20, bounds.width > 20 else {
+            capaSubtitulo.isHidden = true
+            return
+        }
+        let punto = max(9, bounds.height * 0.055)
+        let parrafo = NSMutableParagraphStyle()
+        parrafo.alignment = .center
+        let atribuido = NSAttributedString(string: textoSubtitulo, attributes: [
+            .font: NSFont.systemFont(ofSize: punto, weight: .semibold),
+            .foregroundColor: NSColor.white,
+            .strokeColor: NSColor.black,
+            .strokeWidth: -2.5,
+            .paragraphStyle: parrafo,
+        ])
+        let ancho = bounds.width * 0.86
+        let alto = ceil(atribuido.boundingRect(
+            with: NSSize(width: ancho, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading]
+        ).height) + 6
+        capaSubtitulo.string = atribuido
+        capaSubtitulo.frame = CGRect(x: (bounds.width - ancho) / 2, y: bounds.height * 0.06, width: ancho, height: alto)
+        capaSubtitulo.isHidden = false
     }
 
     // MARK: Vista previa
@@ -101,6 +148,7 @@ final class EscenaView: NSView {
         super.viewDidMoveToWindow()
         reloj?.invalidate()
         reloj = nil
+        if let escala = window?.backingScaleFactor { capaSubtitulo.contentsScale = escala }
         if window == nil {
             mostrarCursor()
             return

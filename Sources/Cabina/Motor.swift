@@ -33,6 +33,8 @@ final class Motor: ObservableObject {
     @Published var pendiente: UUID?
     /// Mensaje rápido que espera confirmación por el mismo motivo.
     @Published var mensajePendiente: String?
+    /// Cuenta atrás (en minutos) que espera confirmación por el mismo motivo.
+    @Published var cuentaPendiente: Int?
 
     @Published private(set) var contenido: Contenido = .fondo
     @Published private(set) var imagenVisible: NSImage?
@@ -42,6 +44,8 @@ final class Motor: ObservableObject {
     @Published private(set) var duracion: Double = 0
     @Published private(set) var tituloEnPantalla = ""
     @Published private(set) var esMensaje = false
+    @Published private(set) var subtitulo = ""
+    @Published private(set) var copiando = false
     @Published private(set) var pasadas: Set<UUID> = []
     @Published private(set) var faltantes: Set<UUID> = []
     @Published private(set) var problemas: [UUID: Problema] = [:]
@@ -66,6 +70,10 @@ final class Motor: ObservableObject {
     private var tareaGuardado: Task<Void, Never>?
     private var tareaFundido: Task<Void, Never>?
     private var tareaComprobar: Task<Void, Never>?
+    private var tareaCuenta: Task<Void, Never>?
+    private var tituloCuentaPendiente = ""
+    private var subtitulos: [Subtitulo] = []
+    private var finActual: Double?
     private var indiceMusica = 0
     private var tics = 0
     private let persistir: Bool
@@ -98,7 +106,7 @@ final class Motor: ObservableObject {
         comprobar(avisar: false)
 
         observadorTiempo = player.addPeriodicTimeObserver(
-            forInterval: CMTime(value: 1, timescale: 5), queue: .main
+            forInterval: CMTime(value: 1, timescale: 10), queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.tic() }
         }
@@ -145,7 +153,10 @@ final class Motor: ObservableObject {
         }
     }
 
-    var restante: Double { max(0, duracion - tiempo) }
+    /// Segundo en el que termina la proyección del vídeo en pantalla (su final o su marca de fin).
+    private var limite: Double { min(finActual ?? duracion, duracion > 0 ? duracion : .greatestFiniteMagnitude) }
+
+    var restante: Double { max(0, limite - tiempo) }
 
     var siguiente: Pieza? { funcion.siguiente(a: ultimoLanzado) }
 
@@ -186,7 +197,7 @@ final class Motor: ObservableObject {
 
     private var hayQueConfirmarCorte: Bool { esVideo && reproduciendo && restante > 3 }
 
-    var hayPendiente: Bool { pendiente != nil || mensajePendiente != nil }
+    var hayPendiente: Bool { pendiente != nil || mensajePendiente != nil || cuentaPendiente != nil }
 
     var nombrePendiente: String {
         if let mensajePendiente { return mensajePendiente }
@@ -194,7 +205,11 @@ final class Motor: ObservableObject {
     }
 
     func confirmarPendiente() {
-        if let texto = mensajePendiente {
+        if let minutos = cuentaPendiente {
+            let titulo = tituloCuentaPendiente
+            cancelarPendiente()
+            iniciarCuenta(segundos: minutos * 60, titulo: titulo)
+        } else if let texto = mensajePendiente {
             cancelarPendiente()
             mostrarMensaje(texto)
         } else if let id = pendiente {
@@ -206,6 +221,45 @@ final class Motor: ObservableObject {
     func cancelarPendiente() {
         pendiente = nil
         mensajePendiente = nil
+        cuentaPendiente = nil
+    }
+
+    // MARK: Cuenta atrás
+
+    func pedirCuenta(minutos: Int, titulo: String) {
+        if hayQueConfirmarCorte {
+            tituloCuentaPendiente = titulo
+            cuentaPendiente = minutos
+        } else {
+            iniciarCuenta(segundos: minutos * 60, titulo: titulo)
+        }
+    }
+
+    /// Muestra en la salida una cuenta atrás que se actualiza sola.
+    func iniciarCuenta(segundos: Int, titulo: String) {
+        let limpio = titulo.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cabecera = limpio.isEmpty ? "Empezamos en" : limpio
+        let id = UUID()
+        let final = Date().addingTimeInterval(Double(segundos))
+        let primero = cabecera + "\n" + Tiempo.texto(Double(segundos))
+        ponerImagen(Rotulo.imagen(primero, cifrasFijas: true), id: id, mensaje: true)
+        tituloEnPantalla = "Cuenta atrás · " + cabecera
+        reanudarTrasNegro = false
+        negro = false
+        tareaCuenta = Task { [weak self] in
+            var ultimo = primero
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                guard !Task.isCancelled, let self, self.contenido == .imagen(id) else { return }
+                let quedan = max(0, final.timeIntervalSinceNow)
+                let texto = cabecera + "\n" + (quedan > 0 ? Tiempo.texto(quedan.rounded(.up)) : "00:00")
+                if texto != ultimo {
+                    ultimo = texto
+                    self.imagenVisible = Rotulo.imagen(texto, cifrasFijas: true)
+                }
+                if quedan <= 0 { return }
+            }
+        }
     }
 
     func lanzarSiguiente() {
@@ -240,7 +294,10 @@ final class Motor: ObservableObject {
             salidaVideo = salida
             player.replaceCurrentItem(with: item)
             player.volume = Float(pieza.volumen ?? funcion.volumen)
-            let arranque = max(0, inicio ?? 0)
+            let arranque = max(0, inicio ?? pieza.inicio ?? 0)
+            finActual = pieza.fin.flatMap { $0 > arranque + 1 ? $0 : nil }
+            subtitulos = Self.leerSubtitulos(pieza.subtitulos)
+            subtitulo = SRT.texto(en: arranque, de: subtitulos)
             if arranque > 0 {
                 player.seek(
                     to: CMTime(seconds: arranque, preferredTimescale: 600),
@@ -290,6 +347,7 @@ final class Motor: ObservableObject {
         player.pause()
         player.replaceCurrentItem(with: nil)
         salidaVideo = nil
+        limpiarVideo()
         imagenVisible = imagen
         contenido = .imagen(id)
         esMensaje = mensaje
@@ -305,15 +363,18 @@ final class Motor: ObservableObject {
     }
 
     private func retirar(terminada: Bool) {
+        var encadenada: UUID?
         if terminada, case .video(let id) = contenido, let i = funcion.indice(id) {
             if funcion.piezas[i].posicion != nil { funcion.piezas[i].posicion = nil }
             pasadas.insert(id)
+            if funcion.piezas[i].encadena == true { encadenada = funcion.siguiente(a: id)?.id }
         } else {
             dejarLaActual()
         }
         player.pause()
         player.replaceCurrentItem(with: nil)
         salidaVideo = nil
+        limpiarVideo()
         imagenVisible = imagenFondo
         contenido = .fondo
         esMensaje = false
@@ -322,11 +383,31 @@ final class Motor: ObservableObject {
         tiempo = 0
         duracion = 0
         tituloEnPantalla = ""
+        if let encadenada {
+            lanzar(encadenada, desde: nil)
+            if idEnPantalla == encadenada { return }
+        }
         retomarMusica()
+    }
+
+    private func limpiarVideo() {
+        finActual = nil
+        subtitulos = []
+        if !subtitulo.isEmpty { subtitulo = "" }
+    }
+
+    private static func leerSubtitulos(_ ruta: String?) -> [Subtitulo] {
+        guard let ruta, let datos = try? Data(contentsOf: URL(fileURLWithPath: ruta)), datos.count < 5_000_000 else { return [] }
+        let texto = String(data: datos, encoding: .utf8)
+            ?? String(data: datos, encoding: .windowsCP1252)
+            ?? String(data: datos, encoding: .isoLatin1)
+        return SRT.leer(texto ?? "")
     }
 
     /// Antes de cambiar de pieza: marca la actual como pasada y recuerda por dónde iba.
     private func dejarLaActual() {
+        tareaCuenta?.cancel()
+        tareaCuenta = nil
         guardarPosicionActual()
         if let id = idEnPantalla, funcion.indice(id) != nil { pasadas.insert(id) }
     }
@@ -337,7 +418,7 @@ final class Motor: ObservableObject {
         let t = player.currentTime().seconds
         guard t.isFinite, duracion > 0 else { return }
         let guardada = funcion.piezas[i].posicion
-        if duracion - t <= 5 {
+        if limite - t <= 5 {
             if guardada != nil { funcion.piezas[i].posicion = nil }
         } else if t > 5, guardada == nil || t > (guardada ?? 0) || t > 30 {
             funcion.piezas[i].posicion = t
@@ -354,6 +435,7 @@ final class Motor: ObservableObject {
         } else {
             reanudarTrasNegro = false
             negro = false
+            player.volume = Float(volumenActual)
             player.play()
             reproduciendo = true
         }
@@ -362,6 +444,7 @@ final class Motor: ObservableObject {
     func alternarNegro() {
         if negro {
             negro = false
+            if esVideo { player.volume = Float(volumenActual) }
             if reanudarTrasNegro, esVideo {
                 player.play()
                 reproduciendo = true
@@ -369,9 +452,26 @@ final class Motor: ObservableObject {
             reanudarTrasNegro = false
         } else {
             reanudarTrasNegro = esVideo && player.rate != 0
-            player.pause()
             reproduciendo = false
             negro = true
+            if reanudarTrasNegro { fundirYPausar() } else { player.pause() }
+        }
+    }
+
+    /// Baja el sonido en un cuarto de segundo antes de detener, para que el negro no suene a corte.
+    private func fundirYPausar() {
+        let inicio = player.volume
+        let item = player.currentItem
+        Task { [weak self] in
+            let pasos = 5
+            for paso in 1...pasos {
+                try? await Task.sleep(nanoseconds: 40_000_000)
+                guard let self, self.negro, self.player.currentItem === item else { return }
+                self.player.volume = inicio * Float(pasos - paso) / Float(pasos)
+            }
+            guard let self, self.negro, self.player.currentItem === item else { return }
+            self.player.pause()
+            self.player.volume = inicio
         }
     }
 
@@ -398,9 +498,17 @@ final class Motor: ObservableObject {
         let d = item.duration
         if d.isNumeric, d.seconds > 0 { duracion = d.seconds }
         let enMarcha = player.rate != 0
-        if enMarcha != reproduciendo { reproduciendo = enMarcha }
+        if !negro, enMarcha != reproduciendo { reproduciendo = enMarcha }
+        if !subtitulos.isEmpty {
+            let texto = SRT.texto(en: tiempo, de: subtitulos)
+            if texto != subtitulo { subtitulo = texto }
+        }
+        if let finActual, tiempo >= finActual {
+            retirar(terminada: true)
+            return
+        }
         tics += 1
-        if tics % 25 == 0 { guardarPosicionActual() }
+        if tics % 50 == 0 { guardarPosicionActual() }
     }
 
     private func finDeElemento(_ objeto: AnyObject?) {
@@ -585,7 +693,18 @@ final class Motor: ObservableObject {
     @discardableResult
     func agregar(_ urls: [URL]) -> Int {
         let ordenadas = urls.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        let antes = funcion.piezas.count
         let n = funcion.agregar(ordenadas)
+        for i in antes..<funcion.piezas.count where funcion.piezas[i].tipo == .video {
+            let base = funcion.piezas[i].url.deletingPathExtension()
+            for ext in ["srt", "SRT"] {
+                let candidato = base.appendingPathExtension(ext).path
+                if FileManager.default.fileExists(atPath: candidato) {
+                    funcion.piezas[i].subtitulos = candidato
+                    break
+                }
+            }
+        }
         let descartados = urls.count - n
         if descartados > 0 {
             aviso = "\(descartados) archivo(s) no se añadieron: Cabina admite MP4, MOV, M4V, JPG y PNG."
@@ -620,6 +739,162 @@ final class Motor: ObservableObject {
             if idEnPantalla == id { imagenVisible = Rotulo.imagen(limpio) }
         }
         if idEnPantalla == id { tituloEnPantalla = limpio }
+    }
+
+    // MARK: Subtítulos, recorte y encadenado
+
+    func pedirSubtitulos(_ id: UUID) {
+        guard let i = funcion.indice(id) else { return }
+        let panel = NSOpenPanel()
+        panel.title = "Subtítulos de «\(funcion.piezas[i].nombre)»"
+        panel.prompt = "Usar estos subtítulos"
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [UTType(filenameExtension: "srt") ?? .plainText]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard !Self.leerSubtitulos(url.path).isEmpty else {
+            aviso = "Ese archivo no contiene subtítulos en formato .srt."
+            return
+        }
+        guard let j = funcion.indice(id) else { return }
+        funcion.piezas[j].subtitulos = url.path
+        if idEnPantalla == id, esVideo { subtitulos = Self.leerSubtitulos(url.path) }
+    }
+
+    func quitarSubtitulos(_ id: UUID) {
+        guard let i = funcion.indice(id) else { return }
+        funcion.piezas[i].subtitulos = nil
+        if idEnPantalla == id { subtitulos = []; subtitulo = "" }
+    }
+
+    /// Marca el punto actual del vídeo en pantalla como su comienzo en próximas proyecciones.
+    func marcarInicio() {
+        guard case .video(let id) = contenido, let i = funcion.indice(id) else { return }
+        if let fin = funcion.piezas[i].fin, fin <= tiempo + 1 { funcion.piezas[i].fin = nil }
+        funcion.piezas[i].inicio = tiempo > 0.5 ? tiempo : nil
+    }
+
+    /// Marca el punto actual como final: la próxima vez, la proyección terminará ahí.
+    func marcarFin() {
+        guard case .video(let id) = contenido, let i = funcion.indice(id) else { return }
+        guard tiempo > (funcion.piezas[i].inicio ?? 0) + 1 else {
+            aviso = "El final tiene que quedar después del comienzo."
+            return
+        }
+        funcion.piezas[i].fin = tiempo
+    }
+
+    func quitarRecorte(_ id: UUID) {
+        guard let i = funcion.indice(id) else { return }
+        funcion.piezas[i].inicio = nil
+        funcion.piezas[i].fin = nil
+        if idEnPantalla == id { finActual = nil }
+    }
+
+    func alternarEncadenado(_ id: UUID) {
+        guard let i = funcion.indice(id) else { return }
+        funcion.piezas[i].encadena = funcion.piezas[i].encadena == true ? nil : true
+    }
+
+    // MARK: Reunir archivos
+
+    /// Copia a una carpeta todos los archivos de la función, para no depender de un USB.
+    func reunirArchivos() {
+        guard !copiando else { return }
+        let panel = NSOpenPanel()
+        panel.title = "Reunir archivos de la función"
+        panel.message = "Elige o crea una carpeta. Cabina copiará ahí los vídeos, imágenes, subtítulos y música de esta función."
+        panel.prompt = "Copiar aquí"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let carpeta = panel.url else { return }
+        reunirArchivos(en: carpeta)
+    }
+
+    func reunirArchivos(en carpeta: URL) {
+        guard !copiando else { return }
+        var rutas: [String] = []
+        for pieza in funcion.piezas where pieza.tipo != .texto {
+            rutas.append(pieza.ruta)
+            if let sub = pieza.subtitulos { rutas.append(sub) }
+        }
+        if let fondo = funcion.rutaFondo { rutas.append(fondo) }
+        rutas.append(contentsOf: funcion.musica)
+        let unicas = Array(Set(rutas)).sorted()
+        copiando = true
+        nota = "Copiando \(unicas.count) archivo(s)…"
+        Task { [weak self] in
+            let resultado = await Task.detached(priority: .userInitiated) {
+                Motor.copiar(unicas, a: carpeta)
+            }.value
+            guard let self else { return }
+            self.copiando = false
+            var nueva = self.funcion
+            for i in nueva.piezas.indices {
+                if let destino = resultado.mapa[nueva.piezas[i].ruta] { nueva.piezas[i].ruta = destino }
+                if let sub = nueva.piezas[i].subtitulos, let destino = resultado.mapa[sub] {
+                    nueva.piezas[i].subtitulos = destino
+                }
+            }
+            if let fondo = nueva.rutaFondo, let destino = resultado.mapa[fondo] { nueva.rutaFondo = destino }
+            nueva.musica = nueva.musica.map { resultado.mapa[$0] ?? $0 }
+            self.funcion = nueva
+            self.verificarArchivos()
+            let archivo = carpeta.appendingPathComponent(Self.nombreSeguro(nueva.nombre) + ".cabina")
+            try? Self.codificar(nueva).write(to: archivo, options: .atomic)
+            if resultado.fallos > 0 {
+                self.nota = nil
+                self.aviso = "\(resultado.fallos) archivo(s) no se pudieron copiar (no se encontraron o no hay espacio). El resto está en «\(carpeta.lastPathComponent)»."
+            } else {
+                self.nota = "Archivos reunidos en «\(carpeta.lastPathComponent)»: la función ya no depende de otros discos."
+            }
+        }
+    }
+
+    private static func nombreSeguro(_ nombre: String) -> String {
+        let limpio = nombre.components(separatedBy: CharacterSet(charactersIn: "/:\\")).joined(separator: "-")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return limpio.isEmpty ? "Función" : limpio
+    }
+
+    /// Copia fuera del hilo principal. Devuelve ruta original → ruta nueva y cuántos fallaron.
+    nonisolated static func copiar(_ rutas: [String], a carpeta: URL) -> (mapa: [String: String], fallos: Int) {
+        let fm = FileManager.default
+        var mapa: [String: String] = [:]
+        var fallos = 0
+        let raiz = carpeta.standardizedFileURL.path
+        for ruta in rutas {
+            let origen = URL(fileURLWithPath: ruta).standardizedFileURL
+            if origen.path.hasPrefix(raiz + "/") { continue }
+            guard fm.fileExists(atPath: origen.path) else {
+                fallos += 1
+                continue
+            }
+            let tam = (try? fm.attributesOfItem(atPath: origen.path)[.size] as? NSNumber)?.int64Value
+            var destino = carpeta.appendingPathComponent(origen.lastPathComponent)
+            var intento = 2
+            var reutilizar = false
+            while fm.fileExists(atPath: destino.path) {
+                let existente = (try? fm.attributesOfItem(atPath: destino.path)[.size] as? NSNumber)?.int64Value
+                if existente != nil, existente == tam {
+                    reutilizar = true
+                    break
+                }
+                let base = origen.deletingPathExtension().lastPathComponent
+                destino = carpeta.appendingPathComponent("\(base) \(intento)").appendingPathExtension(origen.pathExtension)
+                intento += 1
+            }
+            if !reutilizar {
+                do {
+                    try fm.copyItem(at: origen, to: destino)
+                } catch {
+                    fallos += 1
+                    continue
+                }
+            }
+            mapa[ruta] = destino.path
+        }
+        return (mapa, fallos)
     }
 
     func verificarArchivos() {

@@ -1,4 +1,5 @@
 CABINA
+App desarrollada por Muyuna.org
 
 1. Arrastra Cabina a la carpeta Aplicaciones.
 

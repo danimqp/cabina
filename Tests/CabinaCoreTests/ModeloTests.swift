@@ -117,6 +117,21 @@ final class ModeloTests: XCTestCase {
         XCTAssertNil(f.indice(nil))
     }
 
+    func testSubtitulos() {
+        let srt = "\u{FEFF}1\r\n00:00:01,000 --> 00:00:03,500\r\n<i>Hola</i> a todos\r\n\r\n2\r\n00:01:00,000 --> 00:01:02,000 X1:0\r\n{\\an8}Segunda\r\nlínea\r\n\r\nbasura sin tiempo\r\n"
+        let lista = SRT.leer(srt)
+        XCTAssertEqual(lista.count, 2)
+        XCTAssertEqual(lista[0], Subtitulo(inicio: 1, fin: 3.5, texto: "Hola a todos"))
+        XCTAssertEqual(lista[1].texto, "Segunda\nlínea")
+        XCTAssertEqual(lista[1].inicio, 60, accuracy: 0.001)
+        XCTAssertEqual(SRT.texto(en: 0.5, de: lista), "")
+        XCTAssertEqual(SRT.texto(en: 2, de: lista), "Hola a todos")
+        XCTAssertEqual(SRT.texto(en: 3.5, de: lista), "")
+        XCTAssertEqual(SRT.texto(en: 61, de: lista), "Segunda\nlínea")
+        XCTAssertEqual(SRT.leer("esto no es un srt").count, 0)
+        XCTAssertEqual(SRT.leer("").count, 0)
+    }
+
     func testTextoDeTiempo() {
         XCTAssertEqual(Tiempo.texto(0), "00:00")
         XCTAssertEqual(Tiempo.texto(75.9), "01:15")

@@ -32,6 +32,13 @@ public struct Pieza: Identifiable, Codable, Equatable, Sendable {
     public var posicion: Double?
     /// Volumen propio de la pieza; si no tiene, usa el general.
     public var volumen: Double?
+    /// Archivo .srt de subtítulos.
+    public var subtitulos: String?
+    /// Recorte: segundo en el que empieza y en el que termina la proyección.
+    public var inicio: Double?
+    public var fin: Double?
+    /// Al terminar, lanza sola la pieza siguiente.
+    public var encadena: Bool?
 
     public init(
         id: UUID = UUID(), nombre: String, ruta: String, tipo: TipoPieza, duracion: Double? = nil,
@@ -157,5 +164,82 @@ public enum Tiempo {
         let s = total % 60
         if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
         return String(format: "%02d:%02d", m, s)
+    }
+}
+
+/// Una línea de subtítulo con su intervalo en segundos.
+public struct Subtitulo: Equatable, Sendable {
+    public let inicio: Double
+    public let fin: Double
+    public let texto: String
+
+    public init(inicio: Double, fin: Double, texto: String) {
+        self.inicio = inicio
+        self.fin = fin
+        self.texto = texto
+    }
+}
+
+/// Lector de archivos de subtítulos .srt.
+public enum SRT {
+    public static func leer(_ contenido: String) -> [Subtitulo] {
+        let lineas = contenido
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .replacingOccurrences(of: "\u{FEFF}", with: "")
+            .components(separatedBy: "\n")
+        var bloques: [[String]] = [[]]
+        for linea in lineas {
+            if linea.trimmingCharacters(in: .whitespaces).isEmpty {
+                if !(bloques.last ?? []).isEmpty { bloques.append([]) }
+            } else {
+                bloques[bloques.count - 1].append(linea)
+            }
+        }
+        var resultado: [Subtitulo] = []
+        for bloque in bloques {
+            guard let i = bloque.firstIndex(where: { $0.contains("-->") }) else { continue }
+            let partes = bloque[i].components(separatedBy: "-->")
+            guard partes.count == 2, let a = segundos(partes[0]), let b = segundos(partes[1]), b > a else { continue }
+            let texto = bloque[(i + 1)...].map(limpiar).filter { !$0.isEmpty }.joined(separator: "\n")
+            guard !texto.isEmpty else { continue }
+            resultado.append(Subtitulo(inicio: a, fin: b, texto: texto))
+        }
+        return resultado.sorted { $0.inicio < $1.inicio }
+    }
+
+    /// "00:01:02,500" → 62.5
+    static func segundos(_ campo: String) -> Double? {
+        guard let marca = campo.split(separator: " ").first else { return nil }
+        let partes = marca.replacingOccurrences(of: ",", with: ".").split(separator: ":").map { Double($0) }
+        guard partes.count == 2 || partes.count == 3, !partes.contains(where: { $0 == nil }) else { return nil }
+        return partes.compactMap { $0 }.reduce(0) { $0 * 60 + $1 }
+    }
+
+    /// Quita etiquetas de formato como <i> o {\an8}.
+    static func limpiar(_ linea: String) -> String {
+        var salida = ""
+        var dentro: Character?
+        for c in linea {
+            if let cierre = dentro {
+                if c == cierre { dentro = nil }
+            } else if c == "<" {
+                dentro = ">"
+            } else if c == "{" {
+                dentro = "}"
+            } else {
+                salida.append(c)
+            }
+        }
+        return salida.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// El texto que toca en el segundo `t`, o vacío.
+    public static func texto(en t: Double, de lista: [Subtitulo]) -> String {
+        for s in lista {
+            if s.inicio > t { break }
+            if t < s.fin { return s.texto }
+        }
+        return ""
     }
 }

@@ -60,7 +60,7 @@ enum Audio {
 
 enum Rotulo {
     /// Dibuja un mensaje centrado, en claro sobre negro, a tamaño de proyección.
-    static func imagen(_ texto: String) -> NSImage {
+    static func imagen(_ texto: String, cifrasFijas: Bool = false) -> NSImage {
         let tam = NSSize(width: 1920, height: 1080)
         let dibujo = NSImage(size: tam, flipped: false) { rect in
             NSColor.black.setFill()
@@ -77,8 +77,12 @@ enum Rotulo {
             var atribuido = NSAttributedString()
             var alto: CGFloat = 0
             while true {
-                let base = NSFont.systemFont(ofSize: punto, weight: .bold)
-                let fuente = base.fontDescriptor.withDesign(.rounded).flatMap { NSFont(descriptor: $0, size: punto) } ?? base
+                let base = cifrasFijas
+                    ? NSFont.monospacedDigitSystemFont(ofSize: punto, weight: .bold)
+                    : NSFont.systemFont(ofSize: punto, weight: .bold)
+                let fuente = cifrasFijas
+                    ? base
+                    : (base.fontDescriptor.withDesign(.rounded).flatMap { NSFont(descriptor: $0, size: punto) } ?? base)
                 atribuido = NSAttributedString(string: texto, attributes: [
                     .font: fuente, .foregroundColor: color, .paragraphStyle: parrafo,
                 ])

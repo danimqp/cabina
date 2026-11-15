@@ -34,7 +34,7 @@ enum Pruebas {
             let base = URL(fileURLWithPath: carpeta)
             let todos = ((try? FileManager.default.contentsOfDirectory(at: base, includingPropertiesForKeys: nil)) ?? [])
             let audios = todos.filter { $0.pathExtension.lowercased() == "wav" }
-            let archivos = todos.filter { $0.pathExtension.lowercased() != "wav" }
+            let archivos = todos.filter { TipoPieza.deArchivo($0) != nil }
             let agregadas = motor.agregar(archivos)
             anotar(agregadas >= 2, "lista: \(agregadas) piezas agregadas de \(archivos.count) archivos")
             anotar(AtajosGlobales.registrados == 2, "atajos globales registrados: \(AtajosGlobales.registrados) de 2")
@@ -64,6 +64,8 @@ enum Pruebas {
             anotar(motor.esVideo && motor.reproduciendo && motor.tiempo > 1,
                    "vídeo en marcha: tiempo \(motor.tiempo) de \(motor.duracion)")
             anotar(motor.fotogramaPrevia() != nil || motor.tiempo > 1, "la vista previa recibe fotogramas")
+            anotar(motor.subtitulo.contains("Subtítulo de prueba"),
+                   "subtítulos .srt cargados solos y en pantalla: «\(motor.subtitulo.replacingOccurrences(of: "\n", with: " / "))»")
             await capturar("1-video")
 
             motor.alternarNegro()
@@ -93,6 +95,14 @@ enum Pruebas {
             anotar(abs(guardado - corte) < 1.5, "punto del corte guardado: \(guardado) (cortado en \(corte))")
             anotar(motor.volumenActual == 1, "sin vídeo en pantalla el volumen vuelve al general")
             await capturar("2-mensaje")
+
+            // Cuenta atrás
+            motor.iniciarCuenta(segundos: 90, titulo: "")
+            let primera = motor.imagenVisible
+            await esperar(1.6)
+            anotar(motor.esMensaje && motor.tituloEnPantalla.hasPrefix("Cuenta atrás") && motor.imagenVisible !== primera,
+                   "cuenta atrás en pantalla y avanzando")
+            await capturar("2b-cuenta")
 
             // Música de espera
             if let audio = audios.first {
@@ -130,7 +140,10 @@ enum Pruebas {
             motor.lanzar(imagen.id)
             await esperar(1)
             anotar(motor.esImagen && !motor.esMensaje && motor.imagenVisible != nil, "imagen en pantalla")
+            MiniControl.mostrar()
+            anotar(MiniControl.visible, "mini control flotante visible con la salida abierta")
             await capturar("3-imagen")
+            MiniControl.ocultar()
             await esperar(1.5)
             anotar(motor.esImagen, "la imagen sigue en pantalla sin avanzar sola")
             motor.volverAlFondo()
@@ -143,7 +156,44 @@ enum Pruebas {
             if let mensaje {
                 motor.lanzar(mensaje.id)
                 anotar(motor.esMensaje && motor.idEnPantalla == mensaje.id, "mensaje de la lista en pantalla")
+
+                // Recorte y encadenado: el vídeo va de la marca de inicio a la de fin y lanza solo el mensaje
+                motor.lanzar(video.id)
+                await esperar(1.4)
+                motor.marcarInicio()
+                await esperar(1.4)
+                motor.marcarFin()
+                let recorte = motor.funcion.pieza(video.id)
+                anotar((recorte?.inicio ?? 0) > 0.8 && (recorte?.fin ?? 0) > (recorte?.inicio ?? 0) + 1,
+                       "recorte marcado: de \(recorte?.inicio ?? -1) a \(recorte?.fin ?? -1)")
+                motor.volverAlFondo()
+                motor.alternarEncadenado(video.id)
+                motor.lanzar(video.id)
+                await esperar(0.6)
+                anotar(motor.esVideo && motor.tiempo >= (recorte?.inicio ?? 99) - 0.1, "el vídeo recortado empieza en su marca: \(motor.tiempo)")
+                await esperar(2.6)
+                anotar(motor.idEnPantalla == mensaje.id && motor.esMensaje,
+                       "al llegar a la marca de fin lanza sola la pieza siguiente")
+                motor.quitarRecorte(video.id)
+                motor.alternarEncadenado(video.id)
+                motor.volverAlFondo()
             }
+
+            // Reunir archivos en una carpeta
+            let reunidos = base.deletingLastPathComponent().appendingPathComponent("reunidos")
+            try? FileManager.default.createDirectory(at: reunidos, withIntermediateDirectories: true)
+            motor.reunirArchivos(en: reunidos)
+            var copia = 0.0
+            while motor.copiando, copia < 10 { await esperar(0.3); copia += 0.3 }
+            let conArchivo = motor.funcion.piezas.filter { $0.tipo != .texto }
+            let todasDentro = conArchivo.allSatisfy {
+                $0.ruta.contains("/reunidos/") && FileManager.default.fileExists(atPath: $0.ruta)
+            }
+            let subDentro = motor.funcion.pieza(video.id)?.subtitulos?.contains("/reunidos/") == true
+            let funcionGuardada = ((try? FileManager.default.contentsOfDirectory(atPath: reunidos.path)) ?? [])
+                .contains { $0.hasSuffix(".cabina") }
+            anotar(todasDentro && subDentro && funcionGuardada && motor.faltantes.isEmpty,
+                   "archivos reunidos: piezas \(todasDentro), subtítulos \(subDentro), función guardada \(funcionGuardada)")
 
             // Deja la ventana de control a la vista para la captura
             salida.cerrar()

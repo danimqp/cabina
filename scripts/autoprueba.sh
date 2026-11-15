@@ -9,6 +9,7 @@ rm -rf "$P"; mkdir -p "$P/medios"
 swiftc -O scripts/video-prueba.swift -o build/video-prueba
 build/video-prueba "$P/medios/01-corto.mp4" || exit 1
 cp Recursos/icono.png "$P/medios/02-placa.png"
+printf '1\n00:00:00,000 --> 00:00:14,000\nSubtítulo de prueba\ncon dos líneas\n' > "$P/medios/01-corto.srt"
 python3 - "$P/medios/musica-de-espera.wav" <<'PY'
 import math, struct, sys, wave
 with wave.open(sys.argv[1], "w") as w:

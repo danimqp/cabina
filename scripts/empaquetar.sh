@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="${VERSION:-1.0}"
+VERSION="${VERSION:-1.2}"
 BUILD="${GITHUB_RUN_NUMBER:-1}"
 
 swift build -c release --arch arm64 --arch x86_64
@@ -14,6 +14,7 @@ APP="build/Cabina.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Cabina"
 sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD/" Recursos/Info.plist > "$APP/Contents/Info.plist"
+cp Recursos/muyuna.png "$APP/Contents/Resources/muyuna.png"
 
 ICONSET="build/AppIcon.iconset"
 mkdir -p "$ICONSET"
