@@ -7,11 +7,15 @@ import Foundation
 @MainActor
 enum Pruebas {
     private static var hecho = false
+
+    /// La autoprueba solo existe si se pide con la variable de entorno y con el argumento a la vez.
+    static let activa: Bool = ProcessInfo.processInfo.environment["CABINA_PRUEBA"] != nil
+        && CommandLine.arguments.contains("--autoprueba")
     private static var lineas: [String] = []
 
     static func arrancarSiProcede(motor: Motor, salida: Salida) {
         let entorno = ProcessInfo.processInfo.environment
-        guard !hecho, let carpeta = entorno["CABINA_PRUEBA"], let informe = entorno["CABINA_INFORME"] else { return }
+        guard activa, !hecho, let carpeta = entorno["CABINA_PRUEBA"], let informe = entorno["CABINA_INFORME"] else { return }
         hecho = true
 
         Task { @MainActor in

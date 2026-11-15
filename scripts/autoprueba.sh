@@ -18,7 +18,7 @@ with wave.open(sys.argv[1], "w") as w:
 PY
 
 CABINA_PRUEBA="$P/medios" CABINA_INFORME="$P/informe.txt" \
-  build/Cabina.app/Contents/MacOS/Cabina > "$P/salida.log" 2>&1 &
+  build/Cabina.app/Contents/MacOS/Cabina --autoprueba > "$P/salida.log" 2>&1 &
 PID=$!
 
 HECHAS=""

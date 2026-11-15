@@ -26,7 +26,7 @@ done
 iconutil -c icns -o "$APP/Contents/Resources/AppIcon.icns" "$ICONSET"
 rm -rf "$ICONSET"
 
-codesign --force --deep --sign - "$APP"
+codesign --force --deep --options runtime --sign - "$APP"
 codesign --verify --deep --strict "$APP"
 lipo -archs "$APP/Contents/MacOS/Cabina"
 
@@ -37,4 +37,6 @@ cp Recursos/LEEME.txt "$DMG_DIR/LÉEME.txt"
 ln -s /Applications "$DMG_DIR/Applications"
 hdiutil create -volname "Cabina" -srcfolder "$DMG_DIR" -ov -format UDZO build/Cabina.dmg >/dev/null
 rm -rf "$DMG_DIR"
+shasum -a 256 build/Cabina.dmg | cut -d' ' -f1 > build/Cabina.dmg.sha256
 ls -lh build/Cabina.dmg
+echo "SHA-256: $(cat build/Cabina.dmg.sha256)"

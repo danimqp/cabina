@@ -132,6 +132,30 @@ final class ModeloTests: XCTestCase {
         XCTAssertEqual(SRT.leer("").count, 0)
     }
 
+    func testFuncionSaneada() throws {
+        let hostil = #"{"volumen":1e300,"volumenMusica":-4,"piezas":[{"id":"6F9619FF-8B86-D011-B42D-00C04FC964FF","nombre":"A","ruta":"/tmp/A.mp4","tipo":"video","duracion":1e300,"posicion":-5,"inicio":10,"fin":4,"volumen":7},{"id":"6F9619FF-8B86-D011-B42D-00C04FC964FF","nombre":"B","ruta":"/etc/passwd","tipo":"texto","texto":"Hola","subtitulos":"/tmp/x.srt"}]}"#
+        let f = try JSONDecoder().decode(Funcion.self, from: Data(hostil.utf8)).saneada()
+        XCTAssertEqual(f.volumen, 1)
+        XCTAssertEqual(f.volumenMusica, 0)
+        XCTAssertNil(f.piezas[0].duracion)
+        XCTAssertNil(f.piezas[0].posicion)
+        XCTAssertEqual(f.piezas[0].inicio, 10)
+        XCTAssertNil(f.piezas[0].fin)
+        XCTAssertEqual(f.piezas[0].volumen, 1)
+        XCTAssertNotEqual(f.piezas[0].id, f.piezas[1].id)
+        XCTAssertEqual(f.piezas[1].ruta, "")
+        XCTAssertNil(f.piezas[1].subtitulos)
+        XCTAssertEqual(Tiempo.texto(1e300), "00:00")
+        XCTAssertEqual(f.duracionTotal, 0)
+        let normal = funcion(["A", "B"])
+        XCTAssertEqual(normal.saneada(), normal)
+    }
+
+    func testSubtitulosConSignosSueltos() {
+        let lista = SRT.leer("1\n00:00:01,000 --> 00:00:02,000\n3 < 5 y {esto sigue\n")
+        XCTAssertEqual(lista.first?.texto, "3 < 5 y {esto sigue")
+    }
+
     func testTextoDeTiempo() {
         XCTAssertEqual(Tiempo.texto(0), "00:00")
         XCTAssertEqual(Tiempo.texto(75.9), "01:15")

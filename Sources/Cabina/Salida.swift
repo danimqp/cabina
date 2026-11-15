@@ -24,14 +24,36 @@ final class Salida: NSObject, ObservableObject, NSWindowDelegate {
         }
     }
 
+    /// La salida abierta en este momento, para que la app pueda avisar antes de cerrarse.
+    private(set) static weak var actual: Salida?
+
     func alternar() {
-        if abierta { cerrar() } else { abrir() }
+        if abierta { cerrarConAviso() } else { abrir() }
+    }
+
+    /// Cierra la salida; si el público está viendo algo en el proyector, pide confirmación antes.
+    func cerrarConAviso() {
+        guard abierta else { return }
+        if enProyector, motor.idEnPantalla != nil, !motor.negro {
+            let alerta = NSAlert()
+            alerta.messageText = "¿Cerrar la salida?"
+            alerta.informativeText = "El público dejará de ver la proyección y verá el escritorio del ordenador."
+            alerta.addButton(withTitle: "Cerrar la salida")
+            alerta.addButton(withTitle: "Seguir proyectando")
+            guard alerta.runModal() == .alertFirstButtonReturn else { return }
+        }
+        cerrar()
     }
 
     func abrir() {
         guard !abierta else { return }
         montarVentana()
         abierta = true
+        Self.actual = self
+        protegerVentanaDeControl(true)
+        if !enProyector, CGDisplayIsInMirrorSet(CGMainDisplayID()) != 0 {
+            motor.aviso = "Las pantallas están duplicadas: el público vería también los controles. En Ajustes del Sistema > Pantallas, elige «Pantalla ampliada» y vuelve a abrir la salida."
+        }
         if actividad == nil {
             actividad = ProcessInfo.processInfo.beginActivity(
                 options: [.idleDisplaySleepDisabled, .idleSystemSleepDisabled, .userInitiated],
@@ -45,6 +67,7 @@ final class Salida: NSObject, ObservableObject, NSWindowDelegate {
         desmontarVentana()
         abierta = false
         enProyector = false
+        protegerVentanaDeControl(false)
         if let actividad {
             ProcessInfo.processInfo.endActivity(actividad)
             self.actividad = nil
@@ -53,11 +76,47 @@ final class Salida: NSObject, ObservableObject, NSWindowDelegate {
 
     // MARK: Ventana
 
+    private var ventanaDeControl: NSWindow? {
+        NSApp.windows.first { $0 !== ventana && $0.canBecomeMain && !($0 is NSPanel) }
+    }
+
+    /// Con la salida abierta, la ventana de control no se puede cerrar por error (botón rojo o ⌘W).
+    private func protegerVentanaDeControl(_ proteger: Bool) {
+        ventanaDeControl?.standardWindowButton(.closeButton)?.isEnabled = !proteger
+    }
+
+    private static func esIntegrada(_ pantalla: NSScreen) -> Bool {
+        guard let numero = pantalla.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+            return false
+        }
+        return CGDisplayIsBuiltin(numero.uint32Value) != 0
+    }
+
     /// La pantalla que no es la del operador, si existe.
     private func pantallaProyector() -> NSScreen? {
-        let control = NSApp.windows.first { $0 !== ventana && $0.isVisible && $0.canBecomeMain }?.screen
-            ?? NSScreen.main
-        return NSScreen.screens.first { $0 != control }
+        let pantallas = NSScreen.screens
+        guard pantallas.count > 1 else { return nil }
+        // Portátil con una pantalla externa: el proyector es siempre la externa,
+        // esté donde esté la ventana de control.
+        let externas = pantallas.filter { !Self.esIntegrada($0) }
+        if externas.count == 1, pantallas.count == 2 {
+            return externas[0]
+        }
+        let control = ventanaDeControl?.screen ?? NSScreen.main
+        return pantallas.first { $0 != control }
+    }
+
+    /// Si la ventana de control quedó en la pantalla del proyector, la devuelve a la del operador.
+    private func apartarControl(de proyector: NSScreen) {
+        guard let control = ventanaDeControl, control.screen == proyector,
+              let destino = NSScreen.screens.first(where: { $0 != proyector }) else { return }
+        let marco = destino.visibleFrame
+        let ancho = min(control.frame.width, marco.width)
+        let alto = min(control.frame.height, marco.height)
+        control.setFrame(
+            NSRect(x: marco.midX - ancho / 2, y: marco.midY - alto / 2, width: ancho, height: alto),
+            display: true
+        )
     }
 
     private func montarVentana() {
@@ -65,6 +124,7 @@ final class Salida: NSObject, ObservableObject, NSWindowDelegate {
         let vista = EscenaView(motor: motor, modo: .salida)
 
         if let proyector = pantallaProyector() {
+            apartarControl(de: proyector)
             nueva = NSWindow(
                 contentRect: proyector.frame, styleMask: [.borderless],
                 backing: .buffered, defer: false
@@ -109,6 +169,7 @@ final class Salida: NSObject, ObservableObject, NSWindowDelegate {
 
     /// Si se conecta o desconecta el proyector, recoloca la salida sin tocar la reproducción.
     private func pantallasCambiaron() {
+        motor.actualizarDispositivos()
         guard abierta else { return }
         let proyector = pantallaProyector()
         let debeEstarEnProyector = proyector != nil
@@ -130,6 +191,7 @@ final class Salida: NSObject, ObservableObject, NSWindowDelegate {
         escena = nil
         abierta = false
         enProyector = false
+        protegerVentanaDeControl(false)
         if let actividad {
             ProcessInfo.processInfo.endActivity(actividad)
             self.actividad = nil

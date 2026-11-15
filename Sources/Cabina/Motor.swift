@@ -2,6 +2,7 @@ import AppKit
 import AVFoundation
 import CabinaCore
 import Combine
+import CoreAudio
 import CoreImage
 import UniformTypeIdentifiers
 
@@ -71,6 +72,10 @@ final class Motor: ObservableObject {
     private var tareaFundido: Task<Void, Never>?
     private var tareaComprobar: Task<Void, Never>?
     private var tareaCuenta: Task<Void, Never>?
+    private var tareaArchivos: Task<Void, Never>?
+    private var observadorEstado: AnyCancellable?
+    /// Cambia en cada lanzamiento, para descartar cargas de imagen que lleguen tarde.
+    private var turno = 0
     private var tituloCuentaPendiente = ""
     private var subtitulos: [Subtitulo] = []
     private var finActual: Double?
@@ -83,7 +88,7 @@ final class Motor: ObservableObject {
     // MARK: Arranque
 
     init() {
-        persistir = ProcessInfo.processInfo.environment["CABINA_PRUEBA"] == nil
+        persistir = !Pruebas.activa
         player.actionAtItemEnd = .pause
         player.allowsExternalPlayback = false
         musica.actionAtItemEnd = .pause
@@ -91,7 +96,7 @@ final class Motor: ObservableObject {
 
         if persistir, let datos = try? Data(contentsOf: Self.archivoAutomatico),
            let guardada = try? JSONDecoder().decode(Funcion.self, from: datos) {
-            funcion = guardada
+            funcion = guardada.saneada()
         }
         player.volume = Float(funcion.volumen)
         cargarFondo()
@@ -116,6 +121,21 @@ final class Motor: ObservableObject {
         ) { [weak self] notificacion in
             MainActor.assumeIsolated { self?.finDeElemento(notificacion.object as AnyObject?) }
         })
+        observadores.append(centro.addObserver(
+            forName: .AVPlayerItemFailedToPlayToEndTime, object: nil, queue: .main
+        ) { [weak self] notificacion in
+            MainActor.assumeIsolated { self?.falloDeElemento(notificacion.object as AnyObject?) }
+        })
+        var direccion = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        AudioObjectAddPropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject), &direccion, DispatchQueue.main
+        ) { [weak self] _, _ in
+            MainActor.assumeIsolated { self?.actualizarDispositivos() }
+        }
         observadores.append(centro.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -241,6 +261,7 @@ final class Motor: ObservableObject {
         let cabecera = limpio.isEmpty ? "Empezamos en" : limpio
         let id = UUID()
         let final = Date().addingTimeInterval(Double(segundos))
+        turno += 1
         let primero = cabecera + "\n" + Tiempo.texto(Double(segundos))
         ponerImagen(Rotulo.imagen(primero, cifrasFijas: true), id: id, mensaje: true)
         tituloEnPantalla = "Cuenta atrás · " + cabecera
@@ -274,8 +295,9 @@ final class Motor: ObservableObject {
 
     func lanzar(_ id: UUID, desde inicio: Double? = nil) {
         guard let pieza = funcion.pieza(id) else { return }
+        turno += 1
         if pieza.tipo != .texto {
-            guard FileManager.default.fileExists(atPath: pieza.ruta) else {
+            guard Archivos.esNormal(pieza.ruta) else {
                 faltantes.insert(id)
                 aviso = "No se encuentra el archivo de «\(pieza.nombre)». El proyector no ha cambiado. Usa «Localizar archivo…» en el menú de la pieza."
                 return
@@ -292,6 +314,11 @@ final class Motor: ObservableObject {
             item.add(salida)
             dejarLaActual()
             salidaVideo = salida
+            observadorEstado = item.publisher(for: \.status)
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] estado in
+                    if estado == .failed { self?.falloDeVideo() }
+                }
             player.replaceCurrentItem(with: item)
             player.volume = Float(pieza.volumen ?? funcion.volumen)
             let arranque = max(0, inicio ?? pieza.inicio ?? 0)
@@ -314,19 +341,32 @@ final class Motor: ObservableObject {
             callarMusica()
 
         case .imagen:
-            guard let imagen = NSImage(contentsOf: pieza.url), imagen.isValid else {
-                aviso = "No se pudo abrir la imagen «\(pieza.nombre)». El proyector no ha cambiado."
-                return
+            // La imagen se abre fuera del hilo principal para no congelar los controles.
+            let miTurno = turno
+            let ruta = pieza.ruta
+            Task { [weak self] in
+                let cargada = await Task.detached(priority: .userInitiated) { Archivos.imagen(ruta) }.value
+                guard let self, self.turno == miTurno else { return }
+                guard let cg = cargada.imagen, let actual = self.funcion.pieza(id) else {
+                    self.aviso = "No se pudo abrir la imagen «\(pieza.nombre)». El proyector no ha cambiado."
+                    return
+                }
+                let imagen = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+                self.ponerImagen(imagen, id: id, mensaje: false)
+                self.rematarLanzamiento(actual)
             }
-            ponerImagen(imagen, id: id, mensaje: false)
+            return
 
         case .texto:
             ponerImagen(Rotulo.imagen(pieza.texto ?? pieza.nombre), id: id, mensaje: true)
         }
+        rematarLanzamiento(pieza)
+    }
 
+    private func rematarLanzamiento(_ pieza: Pieza) {
         tituloEnPantalla = pieza.nombre
-        ultimoLanzado = id
-        pasadas.remove(id)
+        ultimoLanzado = pieza.id
+        pasadas.remove(pieza.id)
         reanudarTrasNegro = false
         negro = false
         aviso = nil
@@ -336,6 +376,7 @@ final class Motor: ObservableObject {
     func mostrarMensaje(_ texto: String) {
         let limpio = texto.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !limpio.isEmpty else { return }
+        turno += 1
         ponerImagen(Rotulo.imagen(limpio), id: UUID(), mensaje: true)
         tituloEnPantalla = limpio
         reanudarTrasNegro = false
@@ -344,6 +385,7 @@ final class Motor: ObservableObject {
 
     private func ponerImagen(_ imagen: NSImage, id: UUID, mensaje: Bool) {
         dejarLaActual()
+        observadorEstado = nil
         player.pause()
         player.replaceCurrentItem(with: nil)
         salidaVideo = nil
@@ -363,6 +405,8 @@ final class Motor: ObservableObject {
     }
 
     private func retirar(terminada: Bool) {
+        turno += 1
+        observadorEstado = nil
         var encadenada: UUID?
         if terminada, case .video(let id) = contenido, let i = funcion.indice(id) {
             if funcion.piezas[i].posicion != nil { funcion.piezas[i].posicion = nil }
@@ -397,7 +441,8 @@ final class Motor: ObservableObject {
     }
 
     private static func leerSubtitulos(_ ruta: String?) -> [Subtitulo] {
-        guard let ruta, let datos = try? Data(contentsOf: URL(fileURLWithPath: ruta)), datos.count < 5_000_000 else { return [] }
+        guard let ruta, ruta.lowercased().hasSuffix(".srt"), Archivos.esNormal(ruta, maximo: 5_000_000),
+              let datos = try? Data(contentsOf: URL(fileURLWithPath: ruta)) else { return [] }
         let texto = String(data: datos, encoding: .utf8)
             ?? String(data: datos, encoding: .windowsCP1252)
             ?? String(data: datos, encoding: .isoLatin1)
@@ -477,7 +522,8 @@ final class Motor: ObservableObject {
 
     func buscar(_ segundos: Double) {
         guard esVideo else { return }
-        let destino = max(0, min(segundos, max(0, duracion - 0.05)))
+        let tope = finActual.map { min($0, duracion) } ?? duracion
+        let destino = max(0, min(segundos, max(0, tope - 0.3)))
         tiempo = destino
         player.seek(
             to: CMTime(seconds: destino, preferredTimescale: 600),
@@ -488,9 +534,7 @@ final class Motor: ObservableObject {
     private func tic() {
         guard esVideo, let item = player.currentItem else { return }
         if item.status == .failed {
-            let nombre = tituloEnPantalla
-            volverAlFondo()
-            aviso = "No se pudo reproducir «\(nombre)». El formato puede no ser compatible. El proyector ha vuelto al fondo."
+            falloDeVideo()
             return
         }
         let t = player.currentTime().seconds
@@ -509,6 +553,23 @@ final class Motor: ObservableObject {
         }
         tics += 1
         if tics % 50 == 0 { guardarPosicionActual() }
+    }
+
+    /// El vídeo no se puede reproducir (formato, archivo retirado…): fondo y aviso solo al operador.
+    private func falloDeVideo() {
+        guard esVideo else { return }
+        let nombre = tituloEnPantalla
+        volverAlFondo()
+        aviso = "No se pudo reproducir «\(nombre)»: el formato no es compatible o el archivo ya no está. El proyector ha vuelto al fondo."
+    }
+
+    private func falloDeElemento(_ objeto: AnyObject?) {
+        guard let objeto else { return }
+        if let item = musica.currentItem, objeto === item {
+            siguientePista()
+        } else if let item = player.currentItem, objeto === item {
+            falloDeVideo()
+        }
     }
 
     private func finDeElemento(_ objeto: AnyObject?) {
@@ -653,7 +714,7 @@ final class Motor: ObservableObject {
         guard !rutas.isEmpty else { return false }
         for salto in 0..<rutas.count {
             let i = (indiceMusica + salto) % rutas.count
-            guard FileManager.default.fileExists(atPath: rutas[i]) else { continue }
+            guard Archivos.esNormal(rutas[i]) else { continue }
             indiceMusica = i
             let url = URL(fileURLWithPath: rutas[i])
             musica.replaceCurrentItem(with: AVPlayerItem(url: url))
@@ -683,7 +744,11 @@ final class Motor: ObservableObject {
                 self.musica.volume = inicio + (destino - inicio) * Float(paso) / Float(pasos)
             }
             guard !Task.isCancelled, let self else { return }
-            if pausar { self.musica.pause() }
+            if pausar {
+                self.musica.pause()
+            } else {
+                self.musica.volume = Float(self.funcion.volumenMusica)
+            }
             self.tareaFundido = nil
         }
     }
@@ -722,6 +787,9 @@ final class Motor: ObservableObject {
     }
 
     func quitar(_ id: UUID) {
+        if ultimoLanzado == id, let i = funcion.indice(id) {
+            ultimoLanzado = i > 0 ? funcion.piezas[i - 1].id : nil
+        }
         funcion.quitar(id)
         pasadas.remove(id)
         faltantes.remove(id)
@@ -813,19 +881,20 @@ final class Motor: ObservableObject {
 
     func reunirArchivos(en carpeta: URL) {
         guard !copiando else { return }
-        var rutas: [String] = []
+        let medios = TipoPieza.extensionesVideo.union(TipoPieza.extensionesImagen)
+        var permitidas: [String: Set<String>] = [:]
         for pieza in funcion.piezas where pieza.tipo != .texto {
-            rutas.append(pieza.ruta)
-            if let sub = pieza.subtitulos { rutas.append(sub) }
+            permitidas[pieza.ruta, default: []].formUnion(medios)
+            if let sub = pieza.subtitulos { permitidas[sub, default: []].insert("srt") }
         }
-        if let fondo = funcion.rutaFondo { rutas.append(fondo) }
-        rutas.append(contentsOf: funcion.musica)
-        let unicas = Array(Set(rutas)).sorted()
+        if let fondo = funcion.rutaFondo { permitidas[fondo, default: []].formUnion(TipoPieza.extensionesImagen) }
+        for ruta in funcion.musica { permitidas[ruta, default: []].formUnion(Self.extensionesAudio) }
+        let unicas = permitidas.keys.sorted()
         copiando = true
         nota = "Copiando \(unicas.count) archivo(s)…"
         Task { [weak self] in
             let resultado = await Task.detached(priority: .userInitiated) {
-                Motor.copiar(unicas, a: carpeta)
+                Motor.copiar(unicas, permitidas: permitidas, a: carpeta)
             }.value
             guard let self else { return }
             self.copiando = false
@@ -841,8 +910,11 @@ final class Motor: ObservableObject {
             self.funcion = nueva
             self.verificarArchivos()
             let archivo = carpeta.appendingPathComponent(Self.nombreSeguro(nueva.nombre) + ".cabina")
-            try? Self.codificar(nueva).write(to: archivo, options: .atomic)
-            if resultado.fallos > 0 {
+            let guardada = (try? Self.codificar(nueva).write(to: archivo, options: .atomic)) != nil
+            if !guardada {
+                self.nota = nil
+                self.aviso = "Los archivos se copiaron, pero no se pudo guardar la función en «\(carpeta.lastPathComponent)»."
+            } else if resultado.fallos > 0 {
                 self.nota = nil
                 self.aviso = "\(resultado.fallos) archivo(s) no se pudieron copiar (no se encontraron o no hay espacio). El resto está en «\(carpeta.lastPathComponent)»."
             } else {
@@ -858,15 +930,19 @@ final class Motor: ObservableObject {
     }
 
     /// Copia fuera del hilo principal. Devuelve ruta original → ruta nueva y cuántos fallaron.
-    nonisolated static func copiar(_ rutas: [String], a carpeta: URL) -> (mapa: [String: String], fallos: Int) {
+    nonisolated static func copiar(
+        _ rutas: [String], permitidas: [String: Set<String>], a carpeta: URL
+    ) -> (mapa: [String: String], fallos: Int) {
         let fm = FileManager.default
         var mapa: [String: String] = [:]
         var fallos = 0
         let raiz = carpeta.standardizedFileURL.path
         for ruta in rutas {
-            let origen = URL(fileURLWithPath: ruta).standardizedFileURL
+            let origen = URL(fileURLWithPath: ruta).resolvingSymlinksInPath().standardizedFileURL
             if origen.path.hasPrefix(raiz + "/") { continue }
-            guard fm.fileExists(atPath: origen.path) else {
+            // Solo archivos normales del tipo esperado: nunca carpetas, dispositivos ni otros documentos.
+            guard Archivos.esNormal(origen.path),
+                  permitidas[ruta]?.contains(origen.pathExtension.lowercased()) == true else {
                 fallos += 1
                 continue
             }
@@ -897,11 +973,19 @@ final class Motor: ObservableObject {
         return (mapa, fallos)
     }
 
+    /// Revisa qué archivos faltan, sin tocar el disco desde el hilo principal.
     func verificarArchivos() {
-        let nuevos = Set(funcion.piezas
-            .filter { $0.tipo != .texto && !FileManager.default.fileExists(atPath: $0.ruta) }
-            .map(\.id))
-        if nuevos != faltantes { faltantes = nuevos }
+        let pares = funcion.piezas.filter { $0.tipo != .texto }.map { ($0.id, $0.ruta) }
+        tareaArchivos?.cancel()
+        tareaArchivos = Task { [weak self] in
+            let nuevos = await Task.detached(priority: .utility) {
+                Set(pares.filter { !Archivos.esNormal($0.1) }.map { $0.0 })
+            }.value
+            guard !Task.isCancelled, let self else { return }
+            let vigentes = Set(self.funcion.piezas.map(\.id))
+            let filtrados = nuevos.intersection(vigentes)
+            if filtrados != self.faltantes { self.faltantes = filtrados }
+        }
     }
 
     private func cargarDuraciones() {
@@ -926,41 +1010,24 @@ final class Motor: ObservableObject {
     /// Abre cada archivo para detectar, antes de proyectar, los que no van a funcionar.
     func comprobar(avisar: Bool) {
         tareaComprobar?.cancel()
-        verificarArchivos()
         let piezas = funcion.piezas.filter { $0.tipo != .texto }
         if avisar {
             comprobando = true
             nota = nil
         }
         tareaComprobar = Task { [weak self] in
-            var hallados: [UUID: Problema] = [:]
-            for pieza in piezas {
-                guard FileManager.default.fileExists(atPath: pieza.ruta) else { continue }
-                switch pieza.tipo {
-                case .video:
-                    let recurso = AVURLAsset(url: pieza.url)
-                    let reproducible = (try? await recurso.load(.isPlayable)) ?? false
-                    let pistasImagen = (try? await recurso.loadTracks(withMediaType: .video)) ?? []
-                    let pistasSonido = (try? await recurso.loadTracks(withMediaType: .audio)) ?? []
-                    if !reproducible || pistasImagen.isEmpty {
-                        hallados[pieza.id] = Problema(texto: "ESTE VÍDEO NO SE PUEDE REPRODUCIR", grave: true)
-                    } else if pistasSonido.isEmpty {
-                        hallados[pieza.id] = Problema(texto: "Sin sonido", grave: false)
-                    }
-                case .imagen:
-                    let imagen = NSImage(contentsOf: pieza.url)
-                    if imagen == nil || imagen?.isValid == false {
-                        hallados[pieza.id] = Problema(texto: "ESTA IMAGEN NO SE PUEDE ABRIR", grave: true)
-                    }
-                case .texto:
-                    break
-                }
-            }
+            let revision = await Task.detached(priority: .utility) {
+                await Motor.revisar(piezas)
+            }.value
             guard !Task.isCancelled, let self else { return }
+            let vigentes = Set(self.funcion.piezas.map(\.id))
+            let hallados = revision.problemas.filter { vigentes.contains($0.key) }
+            let ausentes = revision.faltantes.intersection(vigentes)
             self.problemas = hallados
+            if ausentes != self.faltantes { self.faltantes = ausentes }
             self.comprobando = false
             guard avisar else { return }
-            let graves = hallados.values.filter { $0.grave }.count + self.faltantes.count
+            let graves = hallados.values.filter { $0.grave }.count + ausentes.count
             let mudos = hallados.values.filter { !$0.grave }.count
             if graves > 0 {
                 self.nota = nil
@@ -971,6 +1038,38 @@ final class Motor: ObservableObject {
                 self.nota = "Comprobado: todo listo para proyectar."
             }
         }
+    }
+
+    /// Abre cada archivo fuera del hilo principal. Las imágenes solo leen la cabecera.
+    nonisolated static func revisar(_ piezas: [Pieza]) async -> (problemas: [UUID: Problema], faltantes: Set<UUID>) {
+        var hallados: [UUID: Problema] = [:]
+        var faltan = Set<UUID>()
+        for pieza in piezas {
+            if Task.isCancelled { break }
+            guard Archivos.esNormal(pieza.ruta) else {
+                faltan.insert(pieza.id)
+                continue
+            }
+            switch pieza.tipo {
+            case .video:
+                let recurso = AVURLAsset(url: pieza.url)
+                let reproducible = (try? await recurso.load(.isPlayable)) ?? false
+                let pistasImagen = (try? await recurso.loadTracks(withMediaType: .video)) ?? []
+                let pistasSonido = (try? await recurso.loadTracks(withMediaType: .audio)) ?? []
+                if !reproducible || pistasImagen.isEmpty {
+                    hallados[pieza.id] = Problema(texto: "ESTE VÍDEO NO SE PUEDE REPRODUCIR", grave: true)
+                } else if pistasSonido.isEmpty {
+                    hallados[pieza.id] = Problema(texto: "Sin sonido", grave: false)
+                }
+            case .imagen:
+                if !Archivos.esImagenLegible(pieza.ruta) {
+                    hallados[pieza.id] = Problema(texto: "ESTA IMAGEN NO SE PUEDE ABRIR", grave: true)
+                }
+            case .texto:
+                break
+            }
+        }
+        return (hallados, faltan)
     }
 
     // MARK: Diálogos de archivo
@@ -1014,11 +1113,15 @@ final class Motor: ObservableObject {
         panel.prompt = "Elegir"
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = Self.tiposAdmitidos
-        guard panel.runModal() == .OK, let url = panel.url, let tipo = TipoPieza.deArchivo(url) else { return }
-        funcion.piezas[i].ruta = url.path
-        funcion.piezas[i].tipo = tipo
-        funcion.piezas[i].duracion = nil
-        funcion.piezas[i].posicion = nil
+        guard panel.runModal() == .OK, let url = panel.url, let tipo = TipoPieza.deArchivo(url),
+              let j = funcion.indice(id) else { return }
+        funcion.piezas[j].ruta = url.path
+        funcion.piezas[j].tipo = tipo
+        funcion.piezas[j].duracion = nil
+        funcion.piezas[j].posicion = nil
+        funcion.piezas[j].inicio = nil
+        funcion.piezas[j].fin = nil
+        funcion.piezas[j].subtitulos = nil
         verificarArchivos()
         cargarDuraciones()
         comprobar(avisar: false)
@@ -1037,6 +1140,14 @@ final class Motor: ObservableObject {
     }
 
     func abrirFuncion() {
+        if !funcion.piezas.isEmpty {
+            let alerta = NSAlert()
+            alerta.messageText = "¿Abrir otra función?"
+            alerta.informativeText = "Sustituirá a la lista actual y detendrá lo que se esté proyectando."
+            alerta.addButton(withTitle: "Abrir otra")
+            alerta.addButton(withTitle: "Cancelar")
+            guard alerta.runModal() == .alertFirstButtonReturn else { return }
+        }
         let panel = NSOpenPanel()
         panel.title = "Abrir función"
         panel.allowsMultipleSelection = false
@@ -1044,7 +1155,8 @@ final class Motor: ObservableObject {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             let datos = try Data(contentsOf: url)
-            reemplazar(por: try JSONDecoder().decode(Funcion.self, from: datos))
+            guard datos.count < 20_000_000 else { throw CocoaError(.fileReadTooLarge) }
+            reemplazar(por: try JSONDecoder().decode(Funcion.self, from: datos).saneada())
         } catch {
             aviso = "No se pudo abrir esa función: el archivo no es una función de Cabina."
         }
@@ -1107,8 +1219,8 @@ final class Motor: ObservableObject {
             imagenFondo = nil
             return
         }
-        if let imagen = NSImage(contentsOfFile: ruta), imagen.isValid {
-            imagenFondo = imagen
+        if let cg = Archivos.imagen(ruta).imagen {
+            imagenFondo = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
         } else {
             imagenFondo = nil
             aviso = "No se encuentra la imagen de fondo. Entre películas se verá negro."

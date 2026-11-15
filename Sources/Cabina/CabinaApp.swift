@@ -3,6 +3,7 @@ import SwiftUI
 
 @main
 struct CabinaApp: App {
+    @NSApplicationDelegateAdaptor(Delegado.self) private var delegado
     @StateObject private var motor: Motor
     @StateObject private var salida: Salida
 
@@ -47,7 +48,7 @@ struct CabinaApp: App {
             }
             CommandMenu("Proyección") {
                 Button(salida.abierta ? "Cerrar salida" : "Abrir salida") { salida.alternar() }
-                    .keyboardShortcut("p")
+                    .keyboardShortcut("p", modifiers: [.command, .shift])
                 Divider()
                 Button("Lanzar la pieza seleccionada") { motor.lanzarSeleccionada() }
                     .keyboardShortcut(.return)
@@ -58,7 +59,7 @@ struct CabinaApp: App {
                 Button(motor.reproduciendo ? "Pausar" : "Reanudar") { motor.alternarReproduccion() }
                     .disabled(!motor.esVideo)
                 Button("Volver al fondo") { motor.volverAlFondo() }
-                    .keyboardShortcut(".")
+                    .disabled(motor.idEnPantalla == nil)
                 Divider()
                 Button(motor.negro ? "Quitar negro" : "Negro") { motor.alternarNegro() }
                     .keyboardShortcut("b")
@@ -86,6 +87,23 @@ struct CabinaApp: App {
     }
 }
 
+/// Impide salir de la app por error mientras el público está viendo la proyección.
+final class Delegado: NSObject, NSApplicationDelegate {
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let salida = Salida.actual, salida.abierta else { return .terminateNow }
+        let alerta = NSAlert()
+        alerta.messageText = "¿Salir de Cabina?"
+        alerta.informativeText = "La salida está abierta: si sales, el público dejará de ver la proyección."
+        alerta.addButton(withTitle: "Salir")
+        alerta.addButton(withTitle: "Seguir proyectando")
+        return alerta.runModal() == .alertFirstButtonReturn ? .terminateNow : .terminateCancel
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
+    }
+}
+
 /// Barra espaciadora para pausar o reanudar, salvo cuando se está escribiendo en un campo de texto.
 @MainActor
 enum Teclado {
@@ -95,7 +113,7 @@ enum Teclado {
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak motor] evento in
             let consumido: Bool = MainActor.assumeIsolated {
-                guard let motor, evento.keyCode == 49 else { return false }
+                guard let motor, evento.keyCode == 49, !evento.isARepeat else { return false }
                 let modificadores = evento.modifierFlags.intersection([.command, .option, .control])
                 guard modificadores.isEmpty else { return false }
                 if NSApp.keyWindow?.firstResponder is NSText { return false }

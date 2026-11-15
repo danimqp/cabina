@@ -620,7 +620,7 @@ struct PanelControl: View {
             .help(motor.volumenEsDeLaPieza
                   ? "Volumen de este vídeo: Cabina lo recuerda para la próxima vez"
                   : "Volumen general")
-            Text("\(Int((motor.volumenActual * 100).rounded())) %")
+            Text("\(Int((max(0, min(1, motor.volumenActual)) * 100).rounded())) %")
                 .font(.system(size: 12, design: .monospaced))
                 .foregroundStyle(Paleta.tenue)
                 .frame(width: 46, alignment: .trailing)

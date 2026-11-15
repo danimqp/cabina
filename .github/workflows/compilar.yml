@@ -5,19 +5,21 @@ on:
     branches: ['**']
   workflow_dispatch:
 
+# Sin disparadores de pull_request: el código de un fork nunca se compila ni se publica aquí.
 permissions:
-  contents: write
-
-concurrency:
-  group: compilar-${{ github.ref }}
-  cancel-in-progress: true
+  contents: read
 
 jobs:
   compilar:
     runs-on: macos-15
     timeout-minutes: 30
+    concurrency:
+      group: compilar-${{ github.ref }}
+      cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Versiones
         run: |
@@ -40,22 +42,46 @@ jobs:
           name: cabina
           path: |
             build/Cabina.dmg
+            build/Cabina.dmg.sha256
             build/prueba/*.png
             build/prueba/*.txt
             build/prueba/*.log
           if-no-files-found: warn
 
+  # Publica el DMG ya compilado. Este trabajo no descarga ni ejecuta código del repositorio.
+  publicar:
+    needs: compilar
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    concurrency:
+      group: publicar
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: cabina
+          path: salida
+
       - name: Publicar el DMG
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           if [ "$GITHUB_REF_NAME" = "main" ]; then
             ETIQUETA=estable; TITULO="Cabina (estable)"; EXTRA=""
           else
             ETIQUETA=prueba; TITULO="Cabina (versión de prueba)"; EXTRA="--prerelease"
           fi
-          gh release delete "$ETIQUETA" --cleanup-tag --yes 2>/dev/null || true
-          sleep 3
-          gh release create "$ETIQUETA" build/Cabina.dmg \
-            --title "$TITULO" --target "$GITHUB_SHA" $EXTRA \
-            --notes "Compilación $GITHUB_RUN_NUMBER de la rama $GITHUB_REF_NAME. Descarga Cabina.dmg, ábrelo y arrastra Cabina a Aplicaciones."
+          SUMA=$(cat salida/Cabina.dmg.sha256)
+          NOTAS="Compilación $GITHUB_RUN_NUMBER de la rama $GITHUB_REF_NAME (${GITHUB_SHA:0:7}). Descarga Cabina.dmg, ábrelo y arrastra Cabina a Aplicaciones.
+
+          SHA-256 de Cabina.dmg: $SUMA"
+          # Se sustituye el archivo sin borrar antes la publicación, para que el enlace nunca quede roto.
+          if gh release view "$ETIQUETA" >/dev/null 2>&1; then
+            gh release upload "$ETIQUETA" salida/Cabina.dmg --clobber
+            gh release edit "$ETIQUETA" --title "$TITULO" --notes "$NOTAS" $EXTRA
+          else
+            gh release create "$ETIQUETA" salida/Cabina.dmg --title "$TITULO" --notes "$NOTAS" --target "$GITHUB_SHA" $EXTRA
+          fi

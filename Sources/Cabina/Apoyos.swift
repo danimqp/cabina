@@ -1,6 +1,50 @@
 import AppKit
 import Carbon.HIToolbox
 import CoreAudio
+import ImageIO
+
+// MARK: Archivos
+
+/// Resultado de abrir una imagen fuera del hilo principal.
+struct ImagenCargada: @unchecked Sendable {
+    let imagen: CGImage?
+}
+
+enum Archivos {
+    /// `true` si la ruta lleva a un archivo normal (no carpeta, dispositivo ni tubería) y, si se indica, no supera el tamaño.
+    static func esNormal(_ ruta: String, maximo: Int64? = nil) -> Bool {
+        guard !ruta.isEmpty else { return false }
+        let real = URL(fileURLWithPath: ruta).resolvingSymlinksInPath().path
+        guard let atributos = try? FileManager.default.attributesOfItem(atPath: real),
+              atributos[.type] as? FileAttributeType == .typeRegular else { return false }
+        if let maximo {
+            return ((atributos[.size] as? NSNumber)?.int64Value ?? .max) <= maximo
+        }
+        return true
+    }
+
+    /// Comprueba solo la cabecera de la imagen.
+    static func esImagenLegible(_ ruta: String) -> Bool {
+        guard esNormal(ruta),
+              let fuente = CGImageSourceCreateWithURL(URL(fileURLWithPath: ruta) as CFURL, nil) else { return false }
+        return CGImageSourceGetCount(fuente) > 0 && CGImageSourceCopyPropertiesAtIndex(fuente, 0, nil) != nil
+    }
+
+    /// Abre la imagen ya orientada y reducida, como mucho, a 3840 px de lado: suficiente para un proyector 4K.
+    static func imagen(_ ruta: String) -> ImagenCargada {
+        guard esNormal(ruta),
+              let fuente = CGImageSourceCreateWithURL(URL(fileURLWithPath: ruta) as CFURL, nil) else {
+            return ImagenCargada(imagen: nil)
+        }
+        let opciones: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: 3840,
+            kCGImageSourceShouldCacheImmediately: true,
+        ]
+        return ImagenCargada(imagen: CGImageSourceCreateThumbnailAtIndex(fuente, 0, opciones as CFDictionary))
+    }
+}
 
 // MARK: Salidas de sonido
 

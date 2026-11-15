@@ -98,6 +98,44 @@ public struct Funcion: Codable, Equatable, Sendable {
         volumenMusica = try c.decodeIfPresent(Double.self, forKey: .volumenMusica) ?? 0.6
     }
 
+    /// Copia con los valores acotados, para abrir sin riesgo un archivo dañado o ajeno.
+    public func saneada() -> Funcion {
+        func tiempo(_ v: Double?) -> Double? {
+            guard let v, v.isFinite, v >= 0, v < 1_000_000 else { return nil }
+            return v
+        }
+        func unidad(_ v: Double) -> Double {
+            v.isFinite ? Swift.min(1, Swift.max(0, v)) : 1
+        }
+        var f = self
+        f.nombre = String(f.nombre.prefix(200))
+        f.volumen = unidad(f.volumen)
+        f.volumenMusica = unidad(f.volumenMusica)
+        f.musica = Array(f.musica.prefix(500))
+        var vistos = Set<UUID>()
+        f.piezas = f.piezas.prefix(2000).map { original in
+            var p = original
+            if !vistos.insert(p.id).inserted {
+                p.id = UUID()
+                vistos.insert(p.id)
+            }
+            p.nombre = String(p.nombre.prefix(300))
+            p.texto = p.texto.map { String($0.prefix(2000)) }
+            p.duracion = tiempo(p.duracion)
+            p.posicion = tiempo(p.posicion)
+            p.inicio = tiempo(p.inicio)
+            p.fin = tiempo(p.fin)
+            if let a = p.inicio, let b = p.fin, b <= a + 1 { p.fin = nil }
+            p.volumen = p.volumen.map(unidad)
+            if p.tipo == .texto {
+                p.ruta = ""
+                p.subtitulos = nil
+            }
+            return p
+        }
+        return f
+    }
+
     /// Duración de los vídeos que aún no se han proyectado.
     public func duracionPendiente(sinContar pasadas: Set<UUID>) -> Double {
         piezas.reduce(0) { $0 + (pasadas.contains($1.id) ? 0 : ($1.duracion ?? 0)) }
@@ -157,7 +195,7 @@ public struct Funcion: Codable, Equatable, Sendable {
 public enum Tiempo {
     /// 75 → "01:15"; 3725 → "1:02:05".
     public static func texto(_ segundos: Double) -> String {
-        guard segundos.isFinite, segundos > 0 else { return "00:00" }
+        guard segundos.isFinite, segundos > 0, segundos < 1_000_000_000 else { return "00:00" }
         let total = Int(segundos.rounded(.down))
         let h = total / 3600
         let m = (total % 3600) / 60
@@ -220,12 +258,14 @@ public enum SRT {
     static func limpiar(_ linea: String) -> String {
         var salida = ""
         var dentro: Character?
-        for c in linea {
+        var resto = Substring(linea)
+        while let c = resto.first {
+            resto = resto.dropFirst()
             if let cierre = dentro {
                 if c == cierre { dentro = nil }
-            } else if c == "<" {
+            } else if c == "<", resto.contains(">") {
                 dentro = ">"
-            } else if c == "{" {
+            } else if c == "{", resto.contains("}") {
                 dentro = "}"
             } else {
                 salida.append(c)
