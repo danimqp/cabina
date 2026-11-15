@@ -25,8 +25,12 @@ public sealed record DatosVideo(bool Legible, double Duracion, int Ancho, int Al
 /// Saca fotogramas sueltos de un vídeo con un reproductor de VLC aparte, sin ventana ni sonido.
 public static class Miniaturas
 {
+    private static readonly SemaphoreSlim puertaDeDatos = new(1, 1);
+
     public static async Task<DatosVideo> Datos(LibVLC vlc, string ruta)
     {
+        // De uno en uno: varios análisis a la vez sobre el mismo motor no aportan nada y son un riesgo.
+        await puertaDeDatos.WaitAsync();
         try
         {
             using var medio = new Media(vlc, ruta, FromType.FromPath);
@@ -53,6 +57,10 @@ public static class Miniaturas
         catch
         {
             return new DatosVideo(false, 0, 0, 0, 0, false, false);
+        }
+        finally
+        {
+            puertaDeDatos.Release();
         }
     }
 

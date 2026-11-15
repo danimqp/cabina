@@ -47,7 +47,16 @@ $viva = -not $p.HasExited
 if ($viva) { Stop-Process -Id $p.Id -Force }
 Write-Host "----- informe -----"
 if (Test-Path $informe) { Get-Content $informe } else { Write-Host "(sin informe)" }
-if (-not $viva) { Write-Host "La app se cerró sola (código $($p.ExitCode))"; exit 1 }
+if (-not $viva) {
+    Write-Host "La app se cerró sola (código $($p.ExitCode))"
+    Write-Host "----- registro de errores de Windows -----"
+    try {
+        Get-WinEvent -FilterHashtable @{ LogName = 'Application'; StartTime = (Get-Date).AddMinutes(-10) } -ErrorAction Stop |
+            Where-Object { $_.ProviderName -in 'Application Error', '.NET Runtime', 'Windows Error Reporting' } |
+            Select-Object -First 4 | ForEach-Object { Write-Host "DIAG [$($_.ProviderName)]"; ($_.Message -split "`n" | Select-Object -First 30) | ForEach-Object { Write-Host "DIAG $_" } }
+    } catch { Write-Host "DIAG sin registro: $_" }
+    exit 1
+}
 $texto = if (Test-Path $informe) { Get-Content $informe -Raw } else { "" }
 if ($texto -notmatch "FIN") { Write-Host "La autoprueba no terminó"; exit 1 }
 if ($texto -match "(?m)^FALLO") { Write-Host "Hay comprobaciones fallidas"; exit 1 }
