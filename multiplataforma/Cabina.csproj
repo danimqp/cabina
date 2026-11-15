@@ -21,8 +21,16 @@
     <PackageReference Include="LibVLCSharp.Avalonia" Version="3.10.2" />
   </ItemGroup>
   <!-- El motor VLC va dentro de la app: nadie tiene que instalar VLC aparte. -->
+  <!-- Solo la variante de 64 bits, y sin los módulos de emisión por red que una proyección no usa:
+       el motor pasa de unos 320 MB a menos de 100. -->
+  <PropertyGroup Condition="$(RuntimeIdentifier.StartsWith('win'))">
+    <VlcWindowsX64Enabled>true</VlcWindowsX64Enabled>
+    <VlcWindowsX86Enabled>false</VlcWindowsX86Enabled>
+    <VlcWindowsArm64Enabled>false</VlcWindowsArm64Enabled>
+  </PropertyGroup>
   <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('win'))">
     <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.24" />
+    <VlcWindowsX64ExcludeFiles Include="plugins\access_output\%2A%2A;plugins\stream_out\%2A%2A;plugins\services_discovery\%2A%2A;plugins\visualization\%2A%2A;plugins\mux\%2A%2A;lua\%2A%2A" />
   </ItemGroup>
   <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('osx'))">
     <PackageReference Include="VideoLAN.LibVLC.Mac" Version="3.1.3.2" />

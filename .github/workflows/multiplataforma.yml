@@ -39,6 +39,9 @@ jobs:
             $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
             if (Test-Path $iscc) { & $iscc empaquetado\instalador.iss } else { Write-Host "Inno Setup no está disponible: solo ZIP" }
             Get-ChildItem salida -File | Format-Table Name, Length
+            $instalado = (Get-ChildItem salida\Cabina -Recurse -File | Measure-Object Length -Sum).Sum / 1MB
+            Write-Host ("Espacio que ocupa instalada: {0:N0} MB" -f $instalado)
+            Get-ChildItem salida\Cabina\libvlc -Directory | ForEach-Object { Write-Host ("Motor VLC incluido: " + $_.Name) }
           }
       - uses: actions/upload-artifact@v4
         if: always()
