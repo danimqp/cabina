@@ -38,7 +38,7 @@ public static class Miniaturas
             int ancho = 0, alto = 0;
             double fps = 0;
             bool sonido = false, imagen = false;
-            foreach (var pista in medio.Tracks)
+            foreach (var pista in Plataforma.Sin("pistas") ? Array.Empty<MediaTrack>() : medio.Tracks)
             {
                 if (pista.TrackType == TrackType.Video && !imagen)
                 {
@@ -78,7 +78,7 @@ public static class Miniaturas
     /// Un fotograma del segundo indicado, reducido para caber en `lado` píxeles.
     public static async Task<Bitmap?> Fotograma(LibVLC vlc, string ruta, double segundo, DatosVideo datos, int lado)
     {
-        if (!datos.ConImagen || datos.Ancho <= 0 || datos.Alto <= 0) return null;
+        if (!datos.ConImagen || datos.Ancho <= 0 || datos.Alto <= 0 || Plataforma.Sin("fotogramas")) return null;
         var escala = Math.Min(1.0, (double)lado / Math.Max(datos.Ancho, datos.Alto));
         var ancho = Math.Max(16, (int)(datos.Ancho * escala) / 2 * 2);
         var destino = Path.Combine(carpeta, $"fotograma-{Guid.NewGuid():N}.png");

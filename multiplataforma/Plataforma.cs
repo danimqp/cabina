@@ -8,6 +8,12 @@ namespace Proyectapp;
 /// Lo que cada sistema hace a su manera: cargar VLC, impedir el reposo y los atajos globales.
 public static class Plataforma
 {
+    /// Diagnóstico: PROYECTAPP_SIN=a,b desactiva partes de la app para aislar un fallo.
+    private static readonly HashSet<string> apagadas =
+        (Environment.GetEnvironmentVariable("PROYECTAPP_SIN") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToHashSet();
+
+    public static bool Sin(string parte) => apagadas.Contains(parte);
+
     public static bool EsWindows => RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
     public static bool EsMac => RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
 

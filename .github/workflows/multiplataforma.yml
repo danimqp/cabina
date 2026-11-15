@@ -28,6 +28,9 @@ jobs:
           dotnet-version: '8.0.x'
       - name: Compilar y publicar
         run: dotnet publish Proyectapp.csproj -c Release -r win-x64 --self-contained true -o salida\Proyectapp
+      - name: Diagnóstico
+        shell: pwsh
+        run: .\empaquetado\diagnostico.ps1
       - name: Autoprueba de la app
         shell: pwsh
         run: .\empaquetado\autoprueba.ps1

@@ -613,7 +613,7 @@ public sealed class Motor : IDisposable
 
     public void ActualizarDispositivos()
     {
-        if (Reproductor == null) return;
+        if (Reproductor == null || Plataforma.Sin("sonido")) return;
         try
         {
             Dispositivos = Reproductor.AudioOutputDeviceEnum
@@ -959,7 +959,7 @@ public sealed class Motor : IDisposable
     /// Genera las miniaturas que falten, de una en una y fuera del hilo de la interfaz.
     private async void GenerarMiniaturas()
     {
-        if (generandoMiniaturas) return;
+        if (generandoMiniaturas || Plataforma.Sin("miniaturas")) return;
         generandoMiniaturas = true;
         try
         {
