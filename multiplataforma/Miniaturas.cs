@@ -56,6 +56,8 @@ public static class Miniaturas
         }
     }
 
+    private static int Alinear(int valor) => valor % 32 == 0 ? valor : (valor / 32 + 1) * 32;
+
     /// Un fotograma del segundo indicado, reducido para caber en `lado` píxeles.
     public static async Task<Bitmap?> Fotograma(LibVLC vlc, string ruta, double segundo, DatosVideo datos, int lado)
     {
@@ -63,8 +65,10 @@ public static class Miniaturas
         var escala = Math.Min(1.0, (double)lado / Math.Max(datos.Ancho, datos.Alto));
         var ancho = Math.Max(16, (int)(datos.Ancho * escala) / 2 * 2);
         var alto = Math.Max(16, (int)(datos.Alto * escala) / 2 * 2);
-        var paso = ancho * 4;
-        var memoria = Marshal.AllocHGlobal(paso * alto);
+        // VLC escribe en bloques de 32: el búfer debe redondearse hacia arriba o se sale de la memoria.
+        var paso = Alinear(ancho * 4);
+        var lineas = Alinear(alto);
+        var memoria = Marshal.AllocHGlobal(paso * lineas + 4096);
         MediaPlayer? reproductor = null;
         try
         {
@@ -121,7 +125,13 @@ public static class Miniaturas
         }
         finally
         {
-            try { reproductor?.Dispose(); } catch { /* ya detenido */ }
+            // Se detiene antes de liberar la memoria: VLC no debe escribir en un búfer ya devuelto.
+            var aCerrar = reproductor;
+            if (aCerrar != null)
+            {
+                try { await Task.Run(() => aCerrar.Stop()); } catch { /* ya detenido */ }
+                try { aCerrar.Dispose(); } catch { /* ya cerrado */ }
+            }
             Marshal.FreeHGlobal(memoria);
         }
     }
