@@ -30,6 +30,7 @@ final class Motor: ObservableObject {
     }
     @Published var seleccion: UUID?
     @Published var aviso: String?
+    @Published var ayudaVisible = false
     /// Pieza que espera confirmación porque hay un vídeo en marcha.
     @Published var pendiente: UUID?
     /// Mensaje rápido que espera confirmación por el mismo motivo.

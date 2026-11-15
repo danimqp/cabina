@@ -36,6 +36,14 @@ struct VistaControl: View {
         .foregroundStyle(Paleta.papel)
         .onAppear {
             DispatchQueue.main.async { NSApp.keyWindow?.makeFirstResponder(nil) }
+            if !Pruebas.activa, !UserDefaults.standard.bool(forKey: "ayudaVista") {
+                motor.ayudaVisible = true
+            }
+        }
+        .sheet(isPresented: $motor.ayudaVisible, onDismiss: {
+            UserDefaults.standard.set(true, forKey: "ayudaVista")
+        }) {
+            VistaAyuda()
         }
         .confirmationDialog(
             "¿Cortar «\(motor.tituloEnPantalla)»?",
@@ -80,6 +88,14 @@ struct BarraSuperior: View {
                 .frame(maxWidth: 340)
                 .onSubmit { NSApp.keyWindow?.makeFirstResponder(nil) }
             Spacer()
+            Button {
+                motor.ayudaVisible = true
+            } label: {
+                Label("Ayuda", systemImage: "questionmark.circle")
+            }
+            .buttonStyle(BotonCabina(color: Paleta.panel))
+            .fixedSize()
+            .help("Cómo se usa, atajos de teclado y funciones menos visibles")
             HStack(spacing: 7) {
                 Image(systemName: salida.abierta ? "dot.radiowaves.left.and.right" : "rectangle.slash")
                 Text(estadoSalida)
@@ -428,6 +444,7 @@ struct PanelControl: View {
     @EnvironmentObject private var salida: Salida
     @State private var arrastre: Double?
     @State private var mensaje = ""
+    @AppStorage("salaAbierta") private var salaAbierta = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -581,37 +598,9 @@ struct PanelControl: View {
 
             Spacer()
 
-            Menu {
-                Section("El sonido de Cabina sale por") {
-                    Button {
-                        motor.elegirSalidaAudio(nil)
-                    } label: {
-                        if motor.salidaAudio == nil {
-                            Label("Salida del sistema", systemImage: "checkmark")
-                        } else {
-                            Text("Salida del sistema")
-                        }
-                    }
-                    ForEach(motor.dispositivos) { dispositivo in
-                        Button {
-                            motor.elegirSalidaAudio(dispositivo.uid)
-                        } label: {
-                            if motor.salidaAudio == dispositivo.uid {
-                                Label(dispositivo.nombre, systemImage: "checkmark")
-                            } else {
-                                Text(dispositivo.nombre)
-                            }
-                        }
-                    }
-                }
-            } label: {
-                Image(systemName: motor.volumenActual == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                    .frame(width: 24, height: 22)
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help("Elegir por dónde suena Cabina (altavoces de la sala, HDMI…)")
+            Image(systemName: motor.volumenActual == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                .foregroundStyle(Paleta.tenue)
+                .frame(width: 24)
             Slider(
                 value: Binding(get: { motor.volumenActual }, set: { motor.fijarVolumen($0) }),
                 in: 0...1
@@ -699,92 +688,182 @@ struct PanelControl: View {
     }
 
     private var pie: some View {
-        HStack(alignment: .top, spacing: 18) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("A CONTINUACIÓN")
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(Paleta.tenue)
-                if let siguiente = motor.siguiente {
-                    Text(siguiente.nombre)
-                        .font(.system(size: 15, weight: .semibold))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Text(detalle(de: siguiente))
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(Paleta.tenue)
-                    Button {
-                        motor.lanzarSiguiente()
-                    } label: {
-                        Label("Lanzarla", systemImage: "forward.end.fill")
-                    }
-                    .buttonStyle(BotonCabina(color: Paleta.panel))
-                    .fixedSize()
-                    .help("Lanzar la siguiente pieza de la lista (⌘→)")
-                } else {
-                    Text(motor.funcion.piezas.isEmpty ? "Añade piezas a la lista" : "Fin de la lista")
-                        .font(.system(size: 15))
-                        .foregroundStyle(Paleta.tenue)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: 12) {
+            continuacion
+            Rectangle().fill(Paleta.panel).frame(height: 1)
+            sala
+        }
+    }
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("FONDO ENTRE VÍDEOS")
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(Paleta.tenue)
-                Text(nombreFondo)
+    // Lo siguiente de la lista, siempre a la vista
+    private var continuacion: some View {
+        HStack(spacing: 12) {
+            Text("A CONTINUACIÓN")
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(Paleta.tenue)
+                .fixedSize()
+            if let siguiente = motor.siguiente {
+                Text(siguiente.nombre)
                     .font(.system(size: 15, weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Text("Al terminar un vídeo")
-                    .font(.system(size: 12))
+                Text(detalle(de: siguiente))
+                    .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(Paleta.tenue)
-                    .lineLimit(1)
+                    .fixedSize()
+                Spacer(minLength: 8)
+                Button {
+                    motor.lanzarSiguiente()
+                } label: {
+                    Label("Lanzarla", systemImage: "forward.end.fill")
+                }
+                .buttonStyle(BotonCabina(color: Paleta.panel))
+                .fixedSize()
+                .help("Lanzar la siguiente pieza de la lista (⌘→)")
+            } else {
+                Text(motor.funcion.piezas.isEmpty ? "Añade piezas a la lista" : "Fin de la lista")
+                    .font(.system(size: 15))
+                    .foregroundStyle(Paleta.tenue)
+                Spacer()
+            }
+        }
+    }
+
+    // Ajustes de la sala: se preparan antes de la función y luego se pliegan
+    private var sala: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) { salaAbierta.toggle() }
+            } label: {
                 HStack(spacing: 8) {
-                    Button("Elegir…") { motor.pedirFondo() }
-                        .buttonStyle(BotonCabina(color: Paleta.panel))
-                        .fixedSize()
-                    if motor.funcion.rutaFondo != nil {
-                        Button("Quitar") { motor.quitarFondo() }
-                            .buttonStyle(BotonCabina(color: Paleta.panel))
+                    Image(systemName: salaAbierta ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 10, weight: .bold))
+                        .frame(width: 12)
+                    Text("SALA")
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    if !salaAbierta {
+                        Text(resumenSala)
+                            .font(.system(size: 12))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    Spacer()
+                    if !salaAbierta {
+                        Text("Música, fondo y sonido")
+                            .font(.system(size: 11))
                             .fixedSize()
                     }
                 }
+                .foregroundStyle(Paleta.tenue)
+                .contentShape(Rectangle())
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .buttonStyle(.plain)
+            .help("Música de espera, fondo entre vídeos y salida de sonido")
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("MÚSICA DE ESPERA")
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(Paleta.tenue)
-                Text(nombreMusica)
-                    .font(.system(size: 15, weight: .semibold))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Text(estadoMusica)
-                    .font(.system(size: 12))
-                    .foregroundStyle(motor.musicaEncendida ? Paleta.ambar : Paleta.tenue)
-                    .lineLimit(1)
-                HStack(spacing: 8) {
-                    Button {
-                        motor.alternarMusica()
-                    } label: {
-                        Label(motor.musicaEncendida ? "Parar" : "Poner",
-                              systemImage: motor.musicaEncendida ? "stop.fill" : "music.note")
-                    }
-                    .buttonStyle(BotonCabina(color: motor.musicaEncendida ? Paleta.ambar : Paleta.panel,
-                                             oscuro: motor.musicaEncendida))
+            if salaAbierta {
+                HStack(alignment: .top, spacing: 18) {
+                    columnaMusica
+                    columnaFondo
+                    columnaSonido
+                }
+            }
+        }
+    }
+
+    private var resumenSala: String {
+        let musica = motor.musicaEncendida ? (motor.esVideo ? "música callada" : "música sonando") : "música apagada"
+        let fondo = motor.funcion.rutaFondo == nil ? "fondo negro" : "fondo con imagen"
+        return "\(musica) · \(fondo) · \(nombreSalidaAudio)"
+    }
+
+    private var nombreSalidaAudio: String {
+        guard let uid = motor.salidaAudio else { return "sonido del sistema" }
+        return motor.dispositivos.first { $0.uid == uid }?.nombre ?? "sonido del sistema"
+    }
+
+    private var columnaMusica: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("MÚSICA DE ESPERA")
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(Paleta.tenue)
+            Text(nombreMusica)
+                .font(.system(size: 15, weight: .semibold))
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Text(estadoMusica)
+                .font(.system(size: 12))
+                .foregroundStyle(motor.musicaEncendida ? Paleta.ambar : Paleta.tenue)
+                .lineLimit(1)
+            HStack(spacing: 8) {
+                Button {
+                    motor.alternarMusica()
+                } label: {
+                    Label(motor.musicaEncendida ? "Parar" : "Poner",
+                          systemImage: motor.musicaEncendida ? "stop.fill" : "music.note")
+                }
+                .buttonStyle(BotonCabina(color: motor.musicaEncendida ? Paleta.ambar : Paleta.panel,
+                                         oscuro: motor.musicaEncendida))
+                .fixedSize()
+                Button("Elegir…") { motor.pedirMusica() }
+                    .buttonStyle(BotonCabina(color: Paleta.panel))
                     .fixedSize()
-                    Button("Elegir…") { motor.pedirMusica() }
+            }
+            Slider(value: $motor.funcion.volumenMusica, in: 0...1)
+                .frame(maxWidth: 150)
+                .help("Volumen de la música de espera")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var columnaFondo: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("FONDO ENTRE VÍDEOS")
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(Paleta.tenue)
+            Text(nombreFondo)
+                .font(.system(size: 15, weight: .semibold))
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Text("Se ve al terminar un vídeo")
+                .font(.system(size: 12))
+                .foregroundStyle(Paleta.tenue)
+                .lineLimit(1)
+            HStack(spacing: 8) {
+                Button("Elegir…") { motor.pedirFondo() }
+                    .buttonStyle(BotonCabina(color: Paleta.panel))
+                    .fixedSize()
+                if motor.funcion.rutaFondo != nil {
+                    Button("Quitar") { motor.quitarFondo() }
                         .buttonStyle(BotonCabina(color: Paleta.panel))
                         .fixedSize()
                 }
-                Slider(value: $motor.funcion.volumenMusica, in: 0...1)
-                    .frame(maxWidth: 150)
-                    .help("Volumen de la música de espera")
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var columnaSonido: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("SALIDA DE SONIDO")
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(Paleta.tenue)
+            Picker("Salida de sonido", selection: Binding(
+                get: { motor.salidaAudio ?? "" },
+                set: { motor.elegirSalidaAudio($0.isEmpty ? nil : $0) }
+            )) {
+                Text("Salida del sistema").tag("")
+                ForEach(motor.dispositivos) { dispositivo in
+                    Text(dispositivo.nombre).tag(dispositivo.uid)
+                }
+            }
+            .labelsHidden()
+            .frame(maxWidth: 190)
+            Text("Por dónde suena Cabina, aparte del resto del Mac")
+                .font(.system(size: 12))
+                .foregroundStyle(Paleta.tenue)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func detalle(de pieza: Pieza) -> String {
@@ -810,6 +889,120 @@ struct PanelControl: View {
     private var nombreFondo: String {
         guard let ruta = motor.funcion.rutaFondo else { return "Negro" }
         return URL(fileURLWithPath: ruta).lastPathComponent
+    }
+}
+
+// MARK: Ayuda
+
+/// Guía de tres pasos, atajos y funciones que no están a simple vista.
+struct VistaAyuda: View {
+    @Environment(\.dismiss) private var cerrar
+
+    private let pasos: [(String, String, String)] = [
+        ("1", "Prepara la lista",
+         "Pulsa Añadir o arrastra aquí tus vídeos e imágenes. Ordénalos arrastrando. Puedes cambiar la lista en cualquier momento, también mientras se proyecta."),
+        ("2", "Abre la salida",
+         "Conecta el proyector como pantalla ampliada (no duplicada) y pulsa «Abrir salida». El público verá negro, o tu imagen de fondo, hasta que lances algo."),
+        ("3", "Lanza cada pieza",
+         "Pulsa Lanzar en la pieza que toque. Cuando un vídeo termina, la pantalla vuelve sola al fondo. El botón NEGRO tapa la pantalla al instante sin perder el punto."),
+    ]
+
+    private let atajos: [(String, String)] = [
+        ("Espacio", "Pausar o reanudar el vídeo"),
+        ("⌘B", "Poner o quitar negro"),
+        ("⌘→", "Lanzar la siguiente pieza"),
+        ("⌘↩", "Lanzar la pieza seleccionada"),
+        ("⇧⌘P", "Abrir o cerrar la salida"),
+        ("⌘I", "Añadir archivos"),
+        ("⌃⌥⌘B", "Negro, desde cualquier otra app"),
+        ("⌃⌥⌘P", "Pausa, desde cualquier otra app"),
+    ]
+
+    private let ocultas: [(String, String)] = [
+        ("Menú ⋯ de cada pieza", "Subtítulos .srt, empezar o terminar siempre en un punto, lanzar sola la siguiente y lanzar desde el principio."),
+        ("Botón «Seguir 12:34»", "Aparece cuando un vídeo se cortó: continúa donde se quedó. Para empezarlo de cero, usa el menú ⋯."),
+        ("Sección Sala", "Música de espera, imagen de fondo entre vídeos y por dónde sale el sonido."),
+        ("Menú Archivo", "Guardar y abrir funciones, y reunir todos los archivos en una carpeta para no depender de un USB."),
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Cómo se usa Cabina")
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(pasos, id: \.0) { paso in
+                    HStack(alignment: .top, spacing: 12) {
+                        Text(paso.0)
+                            .font(.system(size: 15, weight: .bold, design: .monospaced))
+                            .foregroundStyle(Paleta.tinta)
+                            .frame(width: 26, height: 26)
+                            .background(Paleta.ambar, in: Circle())
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(paso.1)
+                                .font(.system(size: 15, weight: .semibold))
+                            Text(paso.2)
+                                .font(.system(size: 13))
+                                .foregroundStyle(Paleta.tenue)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            }
+
+            Rectangle().fill(Paleta.panel).frame(height: 1)
+
+            HStack(alignment: .top, spacing: 24) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("ATAJOS")
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(Paleta.tenue)
+                    ForEach(atajos, id: \.0) { atajo in
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            Text(atajo.0)
+                                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                                .frame(width: 64, alignment: .leading)
+                            Text(atajo.1)
+                                .font(.system(size: 12))
+                                .foregroundStyle(Paleta.tenue)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("LO QUE NO ESTÁ A LA VISTA")
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(Paleta.tenue)
+                    ForEach(ocultas, id: \.0) { fila in
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(fila.0)
+                                .font(.system(size: 12, weight: .semibold))
+                            Text(fila.1)
+                                .font(.system(size: 12))
+                                .foregroundStyle(Paleta.tenue)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            HStack {
+                Text("Esta guía está siempre en el botón Ayuda.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Paleta.tenue)
+                Spacer()
+                Button("Entendido") { cerrar() }
+                    .buttonStyle(BotonCabina(color: Paleta.ambar, oscuro: true, grande: true))
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(26)
+        .frame(width: 660)
+        .background(Paleta.tinta)
+        .foregroundStyle(Paleta.papel)
+        .preferredColorScheme(.dark)
     }
 }
 

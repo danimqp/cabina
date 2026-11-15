@@ -20,7 +20,7 @@ struct CabinaApp: App {
                 .environmentObject(salida)
                 .preferredColorScheme(.dark)
                 .tint(Paleta.ambar)
-                .frame(minWidth: 980, minHeight: 720)
+                .frame(minWidth: 980, minHeight: 680)
                 .onAppear {
                     Teclado.instalar(motor: motor)
                     AtajosGlobales.instalar(motor: motor)
@@ -82,6 +82,10 @@ struct CabinaApp: App {
                     .disabled(motor.funcion.piezas.isEmpty)
                 Divider()
                 Text("Desde cualquier otra app: ⌃⌥⌘B negro · ⌃⌥⌘P pausa")
+            }
+            CommandGroup(replacing: .help) {
+                Button("Cómo se usa Cabina y atajos") { motor.ayudaVisible = true }
+                    .keyboardShortcut("?")
             }
         }
     }

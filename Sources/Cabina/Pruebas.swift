@@ -207,6 +207,14 @@ enum Pruebas {
             await esperar(1.5)
             anotar(motor.esVideo, "ventana de control con vídeo en marcha")
             await capturar("4-control")
+            UserDefaults.standard.set(true, forKey: "salaAbierta")
+            await esperar(0.5)
+            await capturar("5-sala")
+            UserDefaults.standard.set(false, forKey: "salaAbierta")
+            motor.ayudaVisible = true
+            await esperar(0.8)
+            await capturar("6-ayuda")
+            motor.ayudaVisible = false
             anotar(true, "FIN")
         }
     }

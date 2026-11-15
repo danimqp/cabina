@@ -28,7 +28,8 @@ El botón **NEGRO** tapa la pantalla al instante sin perder el punto del vídeo.
 - **Seguir donde se cortó:** si un vídeo se interrumpe, su botón pasa a «Seguir 12:34». Para empezarlo de cero, usa el menú ⋯ de la pieza.
 - **Volumen por vídeo:** el volumen que ajustas mientras suena un vídeo se recuerda para ese vídeo.
 - **Comprobar:** abre todos los archivos antes de la función y marca en rojo los que no se van a poder proyectar.
-- **Salida de sonido:** el icono del altavoz elige por dónde suena Cabina, aparte del resto del Mac.
+- **Sala:** la sección plegable del panel reúne la música de espera, el fondo entre vídeos y la salida de sonido de Cabina.
+- **Ayuda:** el botón Ayuda muestra la guía de tres pasos, los atajos y las funciones menos visibles.
 - **Mientras usas otras apps:** la proyección sigue. Desde cualquier app, ⌃⌥⌘B pone negro y ⌃⌥⌘P pausa.
 
 ### Teclas
