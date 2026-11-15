@@ -1,0 +1,111 @@
+name: Prototipo multiplataforma (VLC)
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'multiplataforma/**'
+      - '.github/workflows/multiplataforma.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: multiplataforma
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Compilar y publicar
+        run: dotnet publish Cabina.csproj -c Release -r win-x64 --self-contained true -o salida\Cabina
+      - name: Autoprueba de la app
+        shell: pwsh
+        run: .\empaquetado\autoprueba.ps1
+      - name: ZIP e instalador
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path salida\Cabina\Cabina.exe) {
+            Compress-Archive -Path salida\Cabina -DestinationPath salida\Cabina-Windows.zip -Force
+            $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+            if (Test-Path $iscc) { & $iscc empaquetado\instalador.iss } else { Write-Host "Inno Setup no está disponible: solo ZIP" }
+            Get-ChildItem salida -File | Format-Table Name, Length
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: prototipo-windows
+          path: |
+            multiplataforma/salida/Cabina-Windows.zip
+            multiplataforma/salida/Cabina-Instalador.exe
+            multiplataforma/salida/prueba/*
+          if-no-files-found: warn
+
+  mac:
+    runs-on: macos-15
+    timeout-minutes: 30
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: multiplataforma
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Compilar y publicar
+        run: dotnet publish Cabina.csproj -c Release -r osx-x64 --self-contained true -o salida/mac
+      - name: App y DMG
+        run: empaquetado/mac.sh
+      - name: Autoprueba de la app
+        continue-on-error: true
+        run: empaquetado/autoprueba-mac.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: prototipo-mac
+          path: |
+            multiplataforma/salida/Cabina-VLC-Mac.dmg
+            multiplataforma/salida/prueba/*
+          if-no-files-found: warn
+
+  # Publica lo ya compilado. Este trabajo no descarga ni ejecuta código del repositorio.
+  publicar:
+    needs: [windows, mac]
+    if: ${{ always() && needs.windows.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    concurrency:
+      group: publicar-prototipo
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: salida
+      - name: Publicar
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          ARCHIVOS=$(find salida -maxdepth 2 -type f \( -name 'Cabina-Instalador.exe' -o -name 'Cabina-Windows.zip' -o -name 'Cabina-VLC-Mac.dmg' \))
+          echo "$ARCHIVOS"
+          NOTAS="Prototipo multiplataforma con motor VLC. Compilación $GITHUB_RUN_NUMBER (${GITHUB_SHA:0:7}). Para probar: no sustituye todavía a la versión de Mac."
+          if gh release view prototipo >/dev/null 2>&1; then
+            gh release upload prototipo $ARCHIVOS --clobber
+            gh release edit prototipo --title "Cabina · prototipo Windows y Mac (VLC)" --notes "$NOTAS" --prerelease
+          else
+            gh release create prototipo $ARCHIVOS --title "Cabina · prototipo Windows y Mac (VLC)" --notes "$NOTAS" --target "$GITHUB_SHA" --prerelease
+          fi
