@@ -568,7 +568,7 @@ final class Motor: ObservableObject {
         tareaFundido?.cancel()
         let inicio = musica.volume
         tareaFundido = Task { [weak self] in
-            let pasos = 12
+            let pasos = 8
             for paso in 1...pasos {
                 try? await Task.sleep(nanoseconds: 100_000_000)
                 guard !Task.isCancelled, let self else { return }

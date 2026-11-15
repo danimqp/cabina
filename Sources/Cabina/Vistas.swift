@@ -392,7 +392,7 @@ struct FilaPieza: View {
             base = "Mensaje de texto"
         }
         if enPantalla { return "EN PANTALLA · " + base }
-        if pasada { return "Ya proyectada · " + base }
+        if pasada { return "Ya pasó · " + base }
         return base
     }
 }
@@ -628,7 +628,7 @@ struct PanelControl: View {
         return HStack(spacing: 8) {
             Image(systemName: "text.bubble")
                 .foregroundStyle(Paleta.tenue)
-            TextField("Mensaje rápido para la pantalla: «Empezamos en 10 minutos»", text: $mensaje)
+            TextField("Mensaje rápido: «Empezamos en 10 minutos»", text: $mensaje)
                 .textFieldStyle(.plain)
                 .font(.system(size: 14))
                 .onSubmit { mostrarMensaje() }

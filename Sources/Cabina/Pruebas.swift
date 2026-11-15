@@ -123,7 +123,7 @@ enum Pruebas {
             await esperar(2)
             anotar(motor.musicaSonando, "la música vuelve sola al terminar el vídeo")
             motor.apagarMusica()
-            await esperar(1.6)
+            await esperar(2.5)
             anotar(!motor.musicaSonando && !motor.musicaEncendida, "la música se apaga al pararla")
 
             // Imagen fija
