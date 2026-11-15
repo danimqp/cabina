@@ -10,6 +10,7 @@
     <Company>Muyuna.org</Company>
     <Product>Cabina</Product>
     <ApplicationIcon>Recursos/cabina.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <SatelliteResourceLanguages>es</SatelliteResourceLanguages>
   </PropertyGroup>
   <ItemGroup>
