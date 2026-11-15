@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>Proyectapp</AssemblyName>
+    <RootNamespace>Proyectapp</RootNamespace>
+    <Version>1.0.0</Version>
+    <Company>Muyuna.org</Company>
+    <Product>Proyectapp</Product>
+    <Copyright>App desarrollada por Muyuna.org</Copyright>
+    <ApplicationIcon>Recursos/proyectapp.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <SatelliteResourceLanguages>es</SatelliteResourceLanguages>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.13" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.13" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.13" />
+    <PackageReference Include="LibVLCSharp" Version="3.10.2" />
+    <PackageReference Include="LibVLCSharp.Avalonia" Version="3.10.2" />
+  </ItemGroup>
+  <!-- Windows: el motor VLC va dentro de la app. Solo 64 bits y sin los módulos de emisión por red. -->
+  <PropertyGroup Condition="$(RuntimeIdentifier.StartsWith('win'))">
+    <VlcWindowsX64Enabled>true</VlcWindowsX64Enabled>
+    <VlcWindowsX86Enabled>false</VlcWindowsX86Enabled>
+    <VlcWindowsArm64Enabled>false</VlcWindowsArm64Enabled>
+  </PropertyGroup>
+  <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('win'))">
+    <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.24" />
+    <VlcWindowsX64ExcludeFiles Include="plugins\access_output\%2A%2A;plugins\stream_out\%2A%2A;plugins\services_discovery\%2A%2A;plugins\visualization\%2A%2A;plugins\mux\%2A%2A;lua\%2A%2A" />
+  </ItemGroup>
+  <!-- Mac: el motor VLC nativo se copia dentro de la app al empaquetar (empaquetado/mac.sh). -->
+  <ItemGroup>
+    <AvaloniaResource Include="Recursos/muyuna.png" />
+    <AvaloniaResource Include="Recursos/icono.png" />
+    <AvaloniaResource Include="Recursos/nombre.png" />
+  </ItemGroup>
+</Project>

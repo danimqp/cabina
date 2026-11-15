@@ -1,3 +1,19 @@
+# Proyectapp
+
+App para proyectar cortometrajes e imágenes, uno tras otro, en muestras, cineclubes y cine comunitario.
+Una sola app para **Windows y Mac**. App desarrollada por [Muyuna.org](https://muyuna.org).
+
+**Descargas:** https://github.com/danimqp/cabina/releases/tag/proyectapp
+
+- Windows: `Proyectapp-Instalador.exe`
+- Mac con Apple Silicon: `Proyectapp-Mac.dmg` · Mac con Intel: `Proyectapp-Mac-Intel.dmg`
+
+El código está en la carpeta [`multiplataforma/`](multiplataforma/LEEME.md).
+
+---
+
+Lo que sigue describe **Cabina**, la versión anterior solo para Mac (carpetas `Sources/` y `scripts/`), que se conserva mientras Proyectapp termina de validarse en Mac.
+
 # Cabina
 
 Aplicación para Mac que proyecta cortometrajes e imágenes, uno tras otro, en muestras, festivales y cineclubes.
@@ -20,6 +36,17 @@ Abre el archivo y arrastra Cabina a Aplicaciones.
 5. La lista se puede editar en todo momento, también mientras se proyecta.
 
 El botón **NEGRO** tapa la pantalla al instante sin perder el punto del vídeo.
+
+### Para funciones con muchos cambios
+
+- **Mensaje rápido:** escribe un texto («Empezamos en 10 minutos») y pulsa Mostrar; sale en grande sobre negro. Con «A la lista» lo guardas como una pieza más.
+- **Música de espera:** elige una o varias canciones; suenan en bucle, se callan solas al lanzar un vídeo y vuelven al terminar.
+- **Seguir donde se cortó:** si un vídeo se interrumpe, su botón pasa a «Seguir 12:34». Para empezarlo de cero, usa el menú ⋯ de la pieza.
+- **Volumen por vídeo:** el volumen que ajustas mientras suena un vídeo se recuerda para ese vídeo.
+- **Comprobar:** abre todos los archivos antes de la función y marca en rojo los que no se van a poder proyectar.
+- **Sala:** la sección plegable del panel reúne la música de espera, el fondo entre vídeos y la salida de sonido de Cabina.
+- **Ayuda:** el botón Ayuda muestra la guía de tres pasos, los atajos y las funciones menos visibles.
+- **Mientras usas otras apps:** la proyección sigue. Desde cualquier app, ⌃⌥⌘B pone negro y ⌃⌥⌘P pausa.
 
 ### Teclas
 

@@ -1,0 +1,123 @@
+name: Proyectapp (Windows y Mac)
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'multiplataforma/**'
+      - '.github/workflows/multiplataforma.yml'
+  workflow_dispatch:
+
+# Sin disparadores de pull_request: el código de un fork nunca se compila ni se publica aquí.
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: multiplataforma
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Compilar y publicar
+        run: dotnet publish Proyectapp.csproj -c Release -r win-x64 --self-contained true -o salida\Proyectapp
+      - name: Autoprueba de la app
+        shell: pwsh
+        run: .\empaquetado\autoprueba.ps1
+      - name: ZIP e instalador
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path salida\Proyectapp\Proyectapp.exe) {
+            Compress-Archive -Path salida\Proyectapp -DestinationPath salida\Proyectapp-Windows.zip -Force
+            $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+            if (Test-Path $iscc) { & $iscc /Q empaquetado\instalador.iss } else { Write-Host "Inno Setup no está disponible: solo ZIP" }
+            Get-ChildItem salida -File | Format-Table Name, Length
+            $instalado = (Get-ChildItem salida\Proyectapp -Recurse -File | Measure-Object Length -Sum).Sum / 1MB
+            Write-Host ("Espacio que ocupa instalada: {0:N0} MB" -f $instalado)
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows
+          path: |
+            multiplataforma/salida/Proyectapp-Windows.zip
+            multiplataforma/salida/Proyectapp-Instalador.exe
+            multiplataforma/salida/prueba/*.png
+            multiplataforma/salida/prueba/*.txt
+          if-no-files-found: warn
+
+  mac:
+    runs-on: macos-15
+    timeout-minutes: 30
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        arq: [arm64, x64]
+    defaults:
+      run:
+        working-directory: multiplataforma
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Compilar y publicar
+        run: dotnet publish Proyectapp.csproj -c Release -r osx-${{ matrix.arq }} --self-contained true -o salida/mac-${{ matrix.arq }}
+      - name: App y DMG
+        run: empaquetado/mac.sh ${{ matrix.arq }}
+      - name: Autoprueba de la app
+        if: matrix.arq == 'arm64'
+        run: empaquetado/autoprueba-mac.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mac-${{ matrix.arq }}
+          path: |
+            multiplataforma/salida/Proyectapp-Mac*.dmg
+            multiplataforma/salida/prueba/*.png
+            multiplataforma/salida/prueba/*.txt
+            multiplataforma/salida/prueba/*.log
+          if-no-files-found: warn
+
+  # Publica lo ya compilado. Este trabajo no descarga ni ejecuta código del repositorio.
+  publicar:
+    needs: [windows, mac]
+    if: ${{ always() && needs.windows.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    concurrency:
+      group: publicar-proyectapp
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: salida
+      - name: Publicar
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          ARCHIVOS=$(find salida -maxdepth 2 -type f \( -name 'Proyectapp-Instalador.exe' -o -name 'Proyectapp-Windows.zip' -o -name 'Proyectapp-Mac*.dmg' \))
+          echo "$ARCHIVOS"
+          NOTAS="Proyectapp para Windows y Mac. Compilación $GITHUB_RUN_NUMBER (${GITHUB_SHA:0:7}).
+
+          $(sha256sum $ARCHIVOS | sed 's#salida/[^/]*/##')"
+          if gh release view proyectapp >/dev/null 2>&1; then
+            gh release upload proyectapp $ARCHIVOS --clobber
+            gh release edit proyectapp --title "Proyectapp" --notes "$NOTAS" --prerelease
+          else
+            gh release create proyectapp $ARCHIVOS --title "Proyectapp" --notes "$NOTAS" --target "$GITHUB_SHA" --prerelease
+          fi
