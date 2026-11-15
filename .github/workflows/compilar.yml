@@ -3,6 +3,9 @@ name: Compilar Cabina
 on:
   push:
     branches: ['**']
+    paths-ignore:
+      - 'multiplataforma/**'
+      - '.github/workflows/multiplataforma.yml'
   workflow_dispatch:
 
 # Sin disparadores de pull_request: el código de un fork nunca se compila ni se publica aquí.
