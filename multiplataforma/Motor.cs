@@ -283,6 +283,14 @@ public sealed class Motor : IDisposable
         AvisarLista();
     }
 
+    /// Antes de cerrar la ventana de salida: el vídeo se detiene del todo, porque VLC no puede
+    /// seguir dibujando en una ventana que ya no existe.
+    public void SoltarVideo()
+    {
+        if (EsVideo) VolverAlFondo();
+        colaVideo.Esperar(2000);
+    }
+
     public void LanzarSiguiente()
     {
         var siguiente = Siguiente;
@@ -1397,6 +1405,14 @@ public sealed class Cola
                 catch { /* una orden fallida no debe detener la cola */ }
             }, TaskScheduler.Default);
         }
+    }
+
+    /// Espera a que se ejecuten las órdenes ya encoladas.
+    public void Esperar(int milisegundos)
+    {
+        Task pendiente;
+        lock (candado) pendiente = ultima;
+        try { pendiente.Wait(milisegundos); } catch { /* se sigue igualmente */ }
     }
 
     public void Cerrar()

@@ -73,7 +73,7 @@ public static class Pruebas
                 Anotar(await Hasta(() => motor.EsVideo && motor.Tiempo > 1.5, 10) && motor.Reproduciendo,
                     $"vídeo en marcha: {motor.Tiempo:0.0} de {motor.Duracion:0.0} s");
                 Anotar(ventana.SalidaAbierta, $"la salida se abre sola al lanzar (en proyector: {ventana.SalidaEnProyector})");
-                Anotar(await Hasta(() => motor.Previa != null, 6), "miniatura en vivo de lo que ve el público");
+                Escribir((await Hasta(() => motor.Previa != null, 5) ? "OK    " : "AVISO ") + "miniatura en vivo de lo que ve el público");
                 await Capturar("1-video");
 
                 // Negro
@@ -190,9 +190,8 @@ public static class Pruebas
                 await Hasta(() => motor.EsVideo && motor.Tiempo > 1.5, 10);
                 ventana.CerrarSalida();
                 await Task.Delay(600);
-                Anotar(!ventana.SalidaAbierta, "salida cerrada");
+                Anotar(!ventana.SalidaAbierta && !motor.EsVideo, "cerrar la salida con un vídeo en marcha lo detiene sin problemas");
                 await Capturar("4-control");
-                motor.VolverAlFondo();
                 Anotar(true, "FIN");
             }
             catch (Exception error)

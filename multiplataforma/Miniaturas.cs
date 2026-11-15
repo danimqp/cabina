@@ -31,10 +31,14 @@ public static class Miniaturas
     {
         // De uno en uno: varios análisis a la vez sobre el mismo motor no aportan nada y son un riesgo.
         await puertaDeDatos.WaitAsync();
+        Media? medio = null;
         try
         {
-            using var medio = new Media(vlc, ruta, FromType.FromPath);
+            medio = new Media(vlc, ruta, FromType.FromPath);
             var estado = await medio.Parse(MediaParseOptions.ParseLocal, 10000);
+            // VLC avisa del resultado desde su propio hilo y el código seguiría dentro de ese aviso:
+            // hay que salir de él antes de leer o cerrar el medio, o la app se cierra.
+            await Task.Delay(20).ConfigureAwait(false);
             int ancho = 0, alto = 0;
             double fps = 0;
             bool sonido = false, imagen = false;
@@ -60,6 +64,16 @@ public static class Miniaturas
         }
         finally
         {
+            // El medio se cierra un poco después y nunca desde el hilo de VLC.
+            var aCerrar = medio;
+            if (aCerrar != null)
+            {
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(400);
+                    try { aCerrar.Dispose(); } catch { /* ya cerrado */ }
+                });
+            }
             puertaDeDatos.Release();
         }
     }

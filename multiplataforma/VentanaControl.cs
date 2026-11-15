@@ -631,6 +631,7 @@ public sealed class VentanaControl : Window
     {
         var abierta = salida;
         if (abierta == null) return;
+        motor.SoltarVideo();
         salida = null;
         abierta.Close();
         Plataforma.ImpedirReposo(false);
@@ -1143,7 +1144,14 @@ public sealed class VentanaControl : Window
             textoAviso.Text = motor.Aviso ?? "";
 
             // Miniatura de lo que ve el público
-            var imagen = motor.Negro ? null : motor.EsVideo ? motor.Previa : motor.ImagenVisible;
+            // En vídeo: la instantánea en vivo; si el sistema no la da, la miniatura de la pieza.
+            Avalonia.Media.IImage? imagen = null;
+            if (!motor.Negro)
+            {
+                if (!motor.EsVideo) imagen = motor.ImagenVisible;
+                else if (motor.Previa != null) imagen = motor.Previa;
+                else if (motor.EnPantalla != null && motor.MiniaturasDeLista.TryGetValue(motor.EnPantalla.Id, out var respaldo)) imagen = respaldo;
+            }
             if (!ReferenceEquals(previa.Source, imagen)) previa.Source = imagen;
             var algo = (motor.EsVideo || motor.EsImagen) && !motor.Negro;
             marcoPrevia.BorderBrush = algo ? Paleta.Lima : Paleta.Panel;
