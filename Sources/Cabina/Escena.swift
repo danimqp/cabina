@@ -142,13 +142,32 @@ final class EscenaView: NSView {
         capaSubtitulo.isHidden = false
     }
 
+    /// En pantallas de alta densidad (Retina, 4K en modo HiDPI) las capas deben dibujarse con todos los
+    /// píxeles reales; si no, el vídeo se reproduce a la mitad de resolución y se ve blando.
+    private func ajustarEscala() {
+        guard let escala = window?.backingScaleFactor ?? window?.screen?.backingScaleFactor else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.contentsScale = escala
+        for capa in [capaImagen, capaVideo, capaSubtitulo, capaNegro] {
+            capa.contentsScale = escala
+        }
+        CATransaction.commit()
+        colocarSubtitulo()
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        ajustarEscala()
+    }
+
     // MARK: Vista previa
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         reloj?.invalidate()
         reloj = nil
-        if let escala = window?.backingScaleFactor { capaSubtitulo.contentsScale = escala }
+        ajustarEscala()
         if window == nil {
             mostrarCursor()
             return

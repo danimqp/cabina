@@ -56,6 +56,18 @@ enum Pruebas {
             }
             anotar(video.duracion != nil, "duración detectada: \(video.duracion ?? -1) s")
 
+            // Miniaturas y fotogramas para previsualizar
+            var esperaMiniaturas = 0.0
+            while motor.miniaturas.count < 2, esperaMiniaturas < 8 { await esperar(0.3); esperaMiniaturas += 0.3 }
+            anotar(motor.miniaturas[video.id] != nil && motor.miniaturas[imagen.id] != nil,
+                   "miniaturas de la lista generadas: \(motor.miniaturas.count)")
+            let previaVideo = await motor.previa(de: video)
+            anotar(previaVideo.fotogramas.count == 5 && previaVideo.detalle.contains("640 × 360"),
+                   "previsualización del vídeo: \(previaVideo.fotogramas.count) fotogramas · \(previaVideo.detalle)")
+            let previaImagen = await motor.previa(de: imagen)
+            anotar(previaImagen.fotogramas.count == 1 && previaImagen.detalle.contains("1024 × 1024"),
+                   "previsualización de la imagen: \(previaImagen.detalle)")
+
             // Comprobar la función
             motor.comprobar(avisar: true)
             await esperar(1.5)

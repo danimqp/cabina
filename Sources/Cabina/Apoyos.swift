@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import Carbon.HIToolbox
 import CoreAudio
 import ImageIO
@@ -30,8 +31,58 @@ enum Archivos {
         return CGImageSourceGetCount(fuente) > 0 && CGImageSourceCopyPropertiesAtIndex(fuente, 0, nil) != nil
     }
 
+    /// Un fotograma del vídeo en la fracción indicada de su duración (0…1), reducido a `lado` píxeles.
+    static func fotograma(_ ruta: String, fraccion: Double, lado: CGFloat) async -> (imagen: ImagenCargada, segundo: Double) {
+        guard esNormal(ruta) else { return (ImagenCargada(imagen: nil), 0) }
+        let recurso = AVURLAsset(url: URL(fileURLWithPath: ruta))
+        guard let duracion = try? await recurso.load(.duration), duracion.isNumeric, duracion.seconds > 0 else {
+            return (ImagenCargada(imagen: nil), 0)
+        }
+        let generador = AVAssetImageGenerator(asset: recurso)
+        generador.appliesPreferredTrackTransform = true
+        generador.maximumSize = CGSize(width: lado, height: lado)
+        let holgura = CMTime(seconds: 2, preferredTimescale: 600)
+        generador.requestedTimeToleranceBefore = holgura
+        generador.requestedTimeToleranceAfter = holgura
+        let segundo = duracion.seconds * max(0, min(1, fraccion))
+        let resultado = try? await generador.image(at: CMTime(seconds: segundo, preferredTimescale: 600))
+        return (ImagenCargada(imagen: resultado?.image), segundo)
+    }
+
+    /// Tamaño real, fotogramas por segundo y duración de un vídeo, en una línea.
+    static func detalleDeVideo(_ ruta: String) async -> String {
+        let recurso = AVURLAsset(url: URL(fileURLWithPath: ruta))
+        var partes: [String] = []
+        if let pista = try? await recurso.loadTracks(withMediaType: .video).first {
+            if let tam = try? await pista.load(.naturalSize), let giro = try? await pista.load(.preferredTransform) {
+                let real = tam.applying(giro)
+                partes.append("\(Int(abs(real.width).rounded())) × \(Int(abs(real.height).rounded())) píxeles")
+            }
+            if let fps = try? await pista.load(.nominalFrameRate), fps > 0 {
+                partes.append(String(format: "%.4g fps", Double(fps)))
+            }
+        }
+        let sonido = (try? await recurso.loadTracks(withMediaType: .audio)) ?? []
+        partes.append(sonido.isEmpty ? "sin sonido" : "con sonido")
+        return partes.joined(separator: " · ")
+    }
+
+    /// Tamaño en píxeles de una imagen, leyendo solo la cabecera.
+    static func detalleDeImagen(_ ruta: String) -> String {
+        guard esNormal(ruta),
+              let fuente = CGImageSourceCreateWithURL(URL(fileURLWithPath: ruta) as CFURL, nil),
+              let datos = CGImageSourceCopyPropertiesAtIndex(fuente, 0, nil) as? [CFString: Any],
+              let ancho = datos[kCGImagePropertyPixelWidth] as? Int,
+              let alto = datos[kCGImagePropertyPixelHeight] as? Int else { return "Imagen" }
+        return "\(ancho) × \(alto) píxeles"
+    }
+
     /// Abre la imagen ya orientada y reducida, como mucho, a 3840 px de lado: suficiente para un proyector 4K.
     static func imagen(_ ruta: String) -> ImagenCargada {
+        imagen(ruta, lado: 3840)
+    }
+
+    static func imagen(_ ruta: String, lado: Int) -> ImagenCargada {
         guard esNormal(ruta),
               let fuente = CGImageSourceCreateWithURL(URL(fileURLWithPath: ruta) as CFURL, nil) else {
             return ImagenCargada(imagen: nil)
@@ -39,7 +90,7 @@ enum Archivos {
         let opciones: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: 3840,
+            kCGImageSourceThumbnailMaxPixelSize: lado,
             kCGImageSourceShouldCacheImmediately: true,
         ]
         return ImagenCargada(imagen: CGImageSourceCreateThumbnailAtIndex(fuente, 0, opciones as CFDictionary))

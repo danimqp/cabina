@@ -277,6 +277,27 @@ struct FilaPieza: View {
     @Binding var editando: UUID?
     @State private var borrador = ""
     @FocusState private var conFoco: Bool
+    @State private var verPrevia = false
+
+    /// Miniatura de la pieza; al pulsarla se abren sus fotogramas.
+    private var miniatura: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 4).fill(Color.black)
+            if let imagen = motor.miniaturas[pieza.id], !grave {
+                Image(nsImage: imagen)
+                    .resizable()
+                    .interpolation(.medium)
+                    .scaledToFit()
+            } else {
+                Image(systemName: icono)
+                    .foregroundStyle(grave ? Paleta.rojo : Paleta.tenue)
+            }
+        }
+        .frame(width: 60, height: 34)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .overlay(RoundedRectangle(cornerRadius: 4).stroke(Paleta.panel, lineWidth: 1))
+        .contentShape(Rectangle())
+    }
 
     private var enPantalla: Bool { motor.idEnPantalla == pieza.id }
     private var falta: Bool { motor.faltantes.contains(pieza.id) }
@@ -294,9 +315,17 @@ struct FilaPieza: View {
             Text(String(format: "%02d", numero))
                 .font(.system(size: 13, weight: .medium, design: .monospaced))
                 .foregroundStyle(enPantalla ? Paleta.ambar : Paleta.tenue)
-            Image(systemName: icono)
-                .frame(width: 20)
-                .foregroundStyle(grave ? Paleta.rojo : Paleta.papel)
+            Button {
+                verPrevia = true
+            } label: {
+                miniatura
+            }
+            .buttonStyle(.plain)
+            .help("Ver fotogramas de esta pieza sin proyectarla")
+            .popover(isPresented: $verPrevia, arrowEdge: .trailing) {
+                VistaPreviaPieza(pieza: pieza)
+                    .environmentObject(motor)
+            }
 
             VStack(alignment: .leading, spacing: 3) {
                 if editando == pieza.id {
@@ -368,6 +397,7 @@ struct FilaPieza: View {
             Button("Lanzar") { motor.pedirLanzar(pieza.id) }
                 .disabled(falta)
         }
+        Button("Ver fotogramas") { verPrevia = true }
         Button(pieza.tipo == .texto ? "Editar el texto" : "Renombrar") { editando = pieza.id }
         if pieza.tipo != .texto {
             Button("Localizar archivo…") { motor.localizar(pieza.id) }
@@ -892,6 +922,87 @@ struct PanelControl: View {
     }
 }
 
+// MARK: Previsualización de una pieza
+
+/// Fotogramas de una pieza de la lista, para revisarla sin mandarla al proyector.
+struct VistaPreviaPieza: View {
+    @EnvironmentObject private var motor: Motor
+    let pieza: Pieza
+    @State private var fotogramas: [Fotograma] = []
+    @State private var detalle = ""
+    @State private var cargando = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(pieza.nombre)
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Text(lineaDeDatos)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(Paleta.tenue)
+
+            if cargando {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Sacando fotogramas…")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Paleta.tenue)
+                }
+                .frame(width: 520, height: 120)
+            } else if fotogramas.isEmpty {
+                Label("No se pudo abrir este archivo para previsualizarlo.", systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Paleta.ambar)
+                    .frame(width: 520, alignment: .leading)
+            } else if fotogramas.count == 1, let unica = fotogramas.first {
+                Image(nsImage: unica.imagen)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: 520, maxHeight: 300)
+                    .background(Color.black)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            } else {
+                HStack(alignment: .top, spacing: 8) {
+                    ForEach(fotogramas) { fotograma in
+                        VStack(spacing: 4) {
+                            Image(nsImage: fotograma.imagen)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 190, height: 107)
+                                .background(Color.black)
+                                .clipShape(RoundedRectangle(cornerRadius: 5))
+                            Text(Tiempo.texto(fotograma.segundo ?? 0))
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(Paleta.tenue)
+                        }
+                    }
+                }
+            }
+            Text("Esto solo se ve en tu pantalla, no en el proyector.")
+                .font(.system(size: 11))
+                .foregroundStyle(Paleta.tenue)
+        }
+        .padding(16)
+        .background(Paleta.pizarra)
+        .foregroundStyle(Paleta.papel)
+        .preferredColorScheme(.dark)
+        .task {
+            let resultado = await motor.previa(de: pieza)
+            fotogramas = resultado.fotogramas
+            detalle = resultado.detalle
+            cargando = false
+        }
+    }
+
+    private var lineaDeDatos: String {
+        var partes: [String] = []
+        if !detalle.isEmpty { partes.append(detalle) }
+        if pieza.tipo == .video, let duracion = pieza.duracion { partes.append(Tiempo.texto(duracion)) }
+        return partes.isEmpty ? " " : partes.joined(separator: " · ")
+    }
+}
+
 // MARK: Ayuda
 
 /// Guía de tres pasos, atajos y funciones que no están a simple vista.
@@ -921,6 +1032,7 @@ struct VistaAyuda: View {
     private let ocultas: [(String, String)] = [
         ("Menú ⋯ de cada pieza", "Subtítulos .srt, empezar o terminar siempre en un punto, lanzar sola la siguiente y lanzar desde el principio."),
         ("Botón «Seguir 12:34»", "Aparece cuando un vídeo se cortó: continúa donde se quedó. Para empezarlo de cero, usa el menú ⋯."),
+        ("Miniatura de cada pieza", "Púlsala para ver cinco fotogramas del vídeo, su tamaño real y su duración, sin proyectarlo."),
         ("Sección Sala", "Música de espera, imagen de fondo entre vídeos y por dónde sale el sonido."),
         ("Menú Archivo", "Guardar y abrir funciones, y reunir todos los archivos en una carpeta para no depender de un USB."),
     ]

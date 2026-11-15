@@ -15,6 +15,14 @@ enum Contenido: Equatable {
     case imagen(UUID)
 }
 
+/// Un fotograma para previsualizar una pieza de la lista.
+struct Fotograma: Identifiable {
+    let id = UUID()
+    /// Segundo del vídeo al que corresponde; nulo en las imágenes.
+    let segundo: Double?
+    let imagen: NSImage
+}
+
 /// Resultado de comprobar una pieza antes de la función.
 struct Problema: Equatable {
     let texto: String
@@ -54,6 +62,11 @@ final class Motor: ObservableObject {
     @Published private(set) var comprobando = false
     @Published private(set) var nota: String?
     @Published private(set) var ultimoLanzado: UUID?
+
+    /// Miniatura de cada pieza para reconocerla en la lista.
+    @Published private(set) var miniaturas: [UUID: NSImage] = [:]
+    private var sinMiniatura = Set<UUID>()
+    private var tareaMiniaturas: Task<Void, Never>?
 
     @Published private(set) var musicaEncendida = false
     @Published private(set) var pistaMusica = ""
@@ -792,6 +805,7 @@ final class Motor: ObservableObject {
             ultimoLanzado = i > 0 ? funcion.piezas[i - 1].id : nil
         }
         funcion.quitar(id)
+        olvidarMiniatura(id)
         pasadas.remove(id)
         faltantes.remove(id)
         problemas[id] = nil
@@ -989,7 +1003,70 @@ final class Motor: ObservableObject {
         }
     }
 
+    // MARK: Previsualización
+
+    /// Genera las miniaturas que falten, de una en una y sin ocupar el hilo principal.
+    private func cargarMiniaturas() {
+        guard tareaMiniaturas == nil else { return }
+        tareaMiniaturas = Task { [weak self] in
+            while let motor = self, let pieza = motor.funcion.piezas.first(where: {
+                $0.tipo != .texto && motor.miniaturas[$0.id] == nil && !motor.sinMiniatura.contains($0.id)
+            }) {
+                let id = pieza.id
+                let ruta = pieza.ruta
+                let esVideo = pieza.tipo == .video
+                let cargada = await Task.detached(priority: .utility) { () -> ImagenCargada in
+                    if esVideo { return await Archivos.fotograma(ruta, fraccion: 0.1, lado: 320).imagen }
+                    return Archivos.imagen(ruta, lado: 320)
+                }.value
+                if let cg = cargada.imagen, motor.funcion.pieza(id)?.ruta == ruta {
+                    motor.miniaturas[id] = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+                } else {
+                    motor.sinMiniatura.insert(id)
+                }
+            }
+            self?.tareaMiniaturas = nil
+        }
+    }
+
+    private func olvidarMiniatura(_ id: UUID) {
+        miniaturas[id] = nil
+        sinMiniatura.remove(id)
+    }
+
+    /// Cinco fotogramas repartidos por el vídeo (o la imagen entera) y sus datos técnicos, para ver una pieza sin proyectarla.
+    func previa(de pieza: Pieza) async -> (fotogramas: [Fotograma], detalle: String) {
+        let ruta = pieza.ruta
+        switch pieza.tipo {
+        case .video:
+            let resultado = await Task.detached(priority: .userInitiated) { () -> ([(ImagenCargada, Double)], String) in
+                var lista: [(ImagenCargada, Double)] = []
+                for fraccion in [0.04, 0.27, 0.5, 0.73, 0.95] {
+                    let f = await Archivos.fotograma(ruta, fraccion: fraccion, lado: 480)
+                    lista.append((f.imagen, f.segundo))
+                }
+                return (lista, await Archivos.detalleDeVideo(ruta))
+            }.value
+            let fotogramas = resultado.0.compactMap { par -> Fotograma? in
+                guard let cg = par.0.imagen else { return nil }
+                return Fotograma(segundo: par.1, imagen: NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height)))
+            }
+            return (fotogramas, resultado.1)
+        case .imagen:
+            let resultado = await Task.detached(priority: .userInitiated) {
+                (Archivos.imagen(ruta, lado: 900), Archivos.detalleDeImagen(ruta))
+            }.value
+            guard let cg = resultado.0.imagen else { return ([], resultado.1) }
+            let imagen = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+            return ([Fotograma(segundo: nil, imagen: imagen)], resultado.1)
+        case .texto:
+            let imagen = Rotulo.imagen(pieza.texto ?? pieza.nombre)
+            return ([Fotograma(segundo: nil, imagen: imagen)], "Mensaje de texto")
+        }
+    }
+
     private func cargarDuraciones() {
+        cargarMiniaturas()
         for pieza in funcion.piezas where pieza.tipo == .video && pieza.duracion == nil {
             let id = pieza.id
             let url = pieza.url
@@ -1123,6 +1200,7 @@ final class Motor: ObservableObject {
         funcion.piezas[j].inicio = nil
         funcion.piezas[j].fin = nil
         funcion.piezas[j].subtitulos = nil
+        olvidarMiniatura(id)
         verificarArchivos()
         cargarDuraciones()
         comprobar(avisar: false)
@@ -1184,6 +1262,8 @@ final class Motor: ObservableObject {
         indiceMusica = 0
         negro = false
         pasadas = []
+        miniaturas = [:]
+        sinMiniatura = []
         problemas = [:]
         nota = nil
         ultimoLanzado = nil
