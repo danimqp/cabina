@@ -40,6 +40,16 @@ public sealed class Motor : IDisposable
     public HashSet<Guid> Faltantes { get; private set; } = new();
     public Dictionary<Guid, Problema> Problemas { get; private set; } = new();
     public Dictionary<Guid, Bitmap> MiniaturasDeLista { get; } = new();
+    /// Fotogramas repartidos por cada vídeo, para la tira de la lista y para recorrer la miniatura.
+    public Dictionary<Guid, List<(double Segundo, Bitmap Imagen)>> Fotogramas { get; } = new();
+    public HashSet<Guid> SacandoFotogramas { get; } = new();
+
+    /// La imagen de prueba está en la salida.
+    public bool Prueba { get; private set; }
+    /// Tamaño de la zona de proyección (la pantalla del público menos los márgenes).
+    public Avalonia.Size AreaSalida { get; private set; }
+    /// Recorte que se está aplicando al vídeo, para la autoprueba y el operador.
+    public string? RecorteActual { get; private set; }
 
     public bool MusicaEncendida { get; private set; }
     public string PistaMusica { get; private set; } = "";
@@ -79,6 +89,9 @@ public sealed class Motor : IDisposable
     private int turnoComprobar;
     private bool cerrado;
     private readonly string carpetaTemporal = Path.Combine(Path.GetTempPath(), "Proyectapp");
+    private readonly Dictionary<Guid, (int Ancho, int Alto)> tamanos = new();
+    private (int Ancho, int Alto)? tamanoEnPantalla;
+    private const int NumeroDeFotogramas = 12;
 
     public Motor(bool persistir = true)
     {
@@ -90,6 +103,10 @@ public sealed class Motor : IDisposable
             Reproductor = new MediaPlayer(Vlc) { EnableKeyInput = false, EnableMouseInput = false };
             Reproductor.EndReached += (_, _) => Dispatcher.UIThread.Post(AlTerminarVideo);
             Reproductor.EncounteredError += (_, _) => Dispatcher.UIThread.Post(AlFallarVideo);
+            Reproductor.Vout += (_, e) =>
+            {
+                if (e.Count > 0) Dispatcher.UIThread.Post(AlAparecerVideo);
+            };
             musica = new MediaPlayer(Vlc);
             musica.EndReached += (_, _) => Dispatcher.UIThread.Post(SiguientePista);
             musica.EncounteredError += (_, _) => Dispatcher.UIThread.Post(SiguientePista);
@@ -220,8 +237,13 @@ public sealed class Motor : IDisposable
                 var corte = finActual;
                 var reproductor = Reproductor;
                 var motorVlc = Vlc;
+                Prueba = false;
+                tamanoEnPantalla = tamanos.TryGetValue(pieza.Id, out var conocido) ? conocido : null;
+                var recorteInicial = CalcularRecorte(pieza);
+                RecorteActual = recorteInicial;
                 colaVideo.Encolar(() =>
                 {
+                    reproductor.CropGeometry = recorteInicial;
                     using var medio = new Media(motorVlc, ruta, FromType.FromPath);
                     if (arranque > 0) medio.AddOption(FormattableString.Invariant($":start-time={arranque:0.###}"));
                     if (corte is { } hasta) medio.AddOption(FormattableString.Invariant($":stop-time={hasta:0.###}"));
@@ -273,6 +295,7 @@ public sealed class Motor : IDisposable
 
     private void RematarLanzamiento(Pieza pieza)
     {
+        Prueba = false;
         EnPantalla = pieza;
         UltimaLanzada = pieza;
         TituloEnPantalla = pieza.Nombre;
@@ -348,6 +371,7 @@ public sealed class Motor : IDisposable
 
     private void PonerImagen(Bitmap imagen, bool mensaje)
     {
+        Prueba = false;
         DejarLaActual();
         DetenerVideo();
         finActual = null;
@@ -824,6 +848,8 @@ public sealed class Motor : IDisposable
         if (UltimaLanzada == pieza) UltimaLanzada = i > 0 ? Piezas[i - 1] : null;
         Piezas.RemoveAt(i);
         MiniaturasDeLista.Remove(pieza.Id);
+        Fotogramas.Remove(pieza.Id);
+        tamanos.Remove(pieza.Id);
         sinMiniatura.Remove(pieza.Id);
         Faltantes.Remove(pieza.Id);
         Problemas.Remove(pieza.Id);
@@ -873,6 +899,9 @@ public sealed class Motor : IDisposable
         pieza.Inicio = null;
         pieza.Fin = null;
         pieza.Subtitulos = null;
+        pieza.Bandas = null;
+        Fotogramas.Remove(pieza.Id);
+        tamanos.Remove(pieza.Id);
         MiniaturasDeLista.Remove(pieza.Id);
         sinMiniatura.Remove(pieza.Id);
         CargarDuraciones();
@@ -1131,6 +1160,177 @@ public sealed class Motor : IDisposable
     }
 
     // =====================================================================
+    // Fotogramas de la lista
+    // =====================================================================
+
+    /// Saca, si faltan, los fotogramas repartidos por el vídeo. Van apareciendo de uno en uno.
+    public async void PedirFotogramas(Pieza pieza)
+    {
+        if (pieza.Tipo != TipoPieza.Video || Vlc == null || Fotogramas.ContainsKey(pieza.Id) || SacandoFotogramas.Contains(pieza.Id)) return;
+        if (Faltantes.Contains(pieza.Id) || !Formatos.EsArchivoNormal(pieza.Ruta)) return;
+        var motorVlc = Vlc;
+        var ruta = pieza.Ruta;
+        var lista = new List<(double, Bitmap)>();
+        SacandoFotogramas.Add(pieza.Id);
+        Fotogramas[pieza.Id] = lista;
+        CambioDeLista?.Invoke();
+        try
+        {
+            var datos = await Task.Run(() => Miniaturas.Datos(motorVlc, ruta));
+            if (datos.Ancho > 0 && datos.Alto > 0) tamanos[pieza.Id] = (datos.Ancho, datos.Alto);
+            if (datos.Duracion <= 0 || !datos.ConImagen) return;
+            for (var i = 0; i < NumeroDeFotogramas; i++)
+            {
+                if (!Piezas.Contains(pieza) || pieza.Ruta != ruta || cerrado) return;
+                var segundo = datos.Duracion * (i + 0.5) / NumeroDeFotogramas;
+                var cuadro = await Task.Run(() => Miniaturas.Fotograma(motorVlc, ruta, segundo, datos, 240));
+                if (cuadro == null) continue;
+                if (!ReferenceEquals(Fotogramas.GetValueOrDefault(pieza.Id), lista)) return;
+                lista.Add((segundo, cuadro));
+                CambioDeLista?.Invoke();
+            }
+            if (pieza.Bandas == null && lista.Count >= 3)
+            {
+                pieza.Bandas = Encuadres.DetectarBandas(lista.Select(f => f.Item2)) ?? new Bandas();
+                GuardarPronto();
+                if (EnPantalla == pieza && EsVideo) AplicarEncuadre();
+                AvisarLista();
+            }
+        }
+        catch
+        {
+            // Sin fotogramas: la fila sigue con su miniatura.
+        }
+        finally
+        {
+            SacandoFotogramas.Remove(pieza.Id);
+            CambioDeLista?.Invoke();
+        }
+    }
+
+    // =====================================================================
+    // Encuadre y ajuste de la proyección
+    // =====================================================================
+
+    public Encuadre EncuadreDe(Pieza pieza) => pieza.Encuadre ?? Funcion.Encuadre;
+
+    public void Seleccionar(Pieza pieza)
+    {
+        Seleccion = pieza.Id;
+        PedirFotogramas(pieza);
+        AvisarLista();
+    }
+
+    public void FijarEncuadreGeneral(Encuadre encuadre)
+    {
+        Funcion.Encuadre = encuadre;
+        PrepararBandas();
+        CambioDeAjuste();
+        AvisarLista();
+    }
+
+    /// `null` vuelve al encuadre de la función.
+    public void FijarEncuadre(Pieza pieza, Encuadre? encuadre)
+    {
+        if (!Piezas.Contains(pieza)) return;
+        pieza.Encuadre = encuadre;
+        if (EncuadreDe(pieza) != Encuadre.Completa) PedirFotogramas(pieza);
+        CambioDeAjuste();
+        AvisarLista();
+    }
+
+    public void CambiarAjuste(Action<Ajuste> cambio)
+    {
+        cambio(Funcion.Ajuste);
+        Funcion.Ajuste.Saneado();
+        CambioDeAjuste();
+    }
+
+    public void RestablecerAjuste()
+    {
+        Funcion.Ajuste = new Ajuste();
+        CambioDeAjuste();
+    }
+
+    /// La ventana de salida avisa del tamaño de su zona de proyección.
+    public void FijarAreaSalida(Avalonia.Size area)
+    {
+        if (Math.Abs(area.Width - AreaSalida.Width) < 0.5 && Math.Abs(area.Height - AreaSalida.Height) < 0.5) return;
+        AreaSalida = area;
+        if (EsVideo) AplicarEncuadre();
+    }
+
+    /// Encender o apagar la imagen de prueba. No se mezcla con un vídeo en marcha.
+    public void AlternarPrueba()
+    {
+        if (!Prueba && EsVideo)
+        {
+            Aviso = "Retira el vídeo (Volver al fondo) antes de poner la imagen de prueba.";
+            Avisar();
+            return;
+        }
+        if (!Prueba && AsegurarSalida != null) AsegurarSalida();
+        Prueba = !Prueba;
+        if (Prueba) Negro = false;
+        Avisar();
+    }
+
+    private void CambioDeAjuste()
+    {
+        if (EsVideo) AplicarEncuadre();
+        GuardarPronto();
+        Avisar();
+    }
+
+    /// Los vídeos que van a necesitar sus bandas se analizan con tiempo.
+    private void PrepararBandas()
+    {
+        if (Funcion.Encuadre == Encuadre.Completa) return;
+        foreach (var pieza in Piezas.Where(p => p.Tipo == TipoPieza.Video && p.Bandas == null && p.Encuadre == null)) PedirFotogramas(pieza);
+    }
+
+    private string? CalcularRecorte(Pieza pieza)
+    {
+        if (tamanoEnPantalla is not { } t) return null;
+        var area = AreaSalida;
+        var aspecto = area.Width > 0 && area.Height > 0 ? area.Width / area.Height : 16.0 / 9;
+        return Encuadres.Geometria(Encuadres.Recorte(t.Ancho, t.Alto, 1, aspecto, EncuadreDe(pieza), pieza.Bandas, Funcion.Ajuste), t.Ancho, t.Alto);
+    }
+
+    private void AplicarEncuadre()
+    {
+        var reproductor = Reproductor;
+        if (reproductor == null || !EsVideo || EnPantalla is not { } pieza) return;
+        if (EncuadreDe(pieza) != Encuadre.Completa && pieza.Bandas == null) PedirFotogramas(pieza);
+        var recorte = CalcularRecorte(pieza);
+        if (recorte == RecorteActual) return;
+        RecorteActual = recorte;
+        colaVideo.Encolar(() => reproductor.CropGeometry = recorte);
+    }
+
+    /// VLC ya dibuja el vídeo: se lee su tamaño real y se ajusta el recorte.
+    private void AlAparecerVideo()
+    {
+        var reproductor = Reproductor;
+        if (reproductor == null || !EsVideo || EnPantalla is not { } pieza) return;
+        var miTurno = turno;
+        colaVideo.Encolar(() =>
+        {
+            uint ancho = 0, alto = 0;
+            try { reproductor.Size(0, ref ancho, ref alto); } catch { /* sin tamaño */ }
+            if (ancho == 0 || alto == 0) return;
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (turno != miTurno || EnPantalla != pieza || !EsVideo) return;
+                tamanos[pieza.Id] = ((int)ancho, (int)alto);
+                tamanoEnPantalla = ((int)ancho, (int)alto);
+                AplicarEncuadre();
+                Avisar();
+            });
+        });
+    }
+
+    // =====================================================================
     // Fondo
     // =====================================================================
 
@@ -1264,6 +1464,9 @@ public sealed class Motor : IDisposable
         UltimaLanzada = null;
         Seleccion = null;
         MiniaturasDeLista.Clear();
+        Fotogramas.Clear();
+        tamanos.Clear();
+        Prueba = false;
         sinMiniatura.Clear();
         Problemas = new();
         Faltantes = new();

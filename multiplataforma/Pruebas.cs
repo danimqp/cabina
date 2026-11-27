@@ -157,14 +157,66 @@ public static class Pruebas
                 motor.VolverAlFondo();
                 Anotar(motor.Contenido == Contenido.Fondo, "volver al fondo retira la imagen");
 
+                // Encuadre: cálculo del recorte (vídeo 1920×1080 con bandas del 12 % arriba y abajo, pantalla 16:9)
+                var bandasDePrueba = new Bandas { Arriba = 0.12, Abajo = 0.12 };
+                var llenar = Encuadres.Recorte(1920, 1080, 1, 16.0 / 9, Encuadre.Llenar, bandasDePrueba, new Ajuste());
+                var sinBandas = Encuadres.Recorte(1920, 1080, 1, 16.0 / 9, Encuadre.SinBandas, bandasDePrueba, new Ajuste());
+                var completa = Encuadres.Recorte(1920, 1080, 1, 16.0 / 9, Encuadre.Completa, bandasDePrueba, new Ajuste());
+                Anotar(llenar is { Ancho: >= 1455 and <= 1463, Alto: >= 819 and <= 823 } && sinBandas is { Ancho: 1920, Alto: >= 819 and <= 823 } && completa == null
+                       && Encuadres.Geometria(sinBandas, 1920, 1080) == "0+130+0+129",
+                    $"cálculo del encuadre: llenar {Encuadres.Geometria(llenar, 1920, 1080)} · sin bandas {Encuadres.Geometria(sinBandas, 1920, 1080)} · completa entera");
+
+                // Vídeo con bandas negras dentro del archivo
+                var panoramica = motor.Piezas.FirstOrDefault(p => p.Tipo == TipoPieza.Video && p.Ruta.Contains("panoramica"));
+                if (panoramica == null)
+                {
+                    Anotar(false, "falta el vídeo panorámico de prueba");
+                }
+                else
+                {
+                    motor.PedirFotogramas(panoramica);
+                    Anotar(await Hasta(() => !motor.SacandoFotogramas.Contains(panoramica.Id), 60) && motor.Fotogramas.GetValueOrDefault(panoramica.Id)?.Count >= 6,
+                        $"fotogramas para la tira de la lista: {motor.Fotogramas.GetValueOrDefault(panoramica.Id)?.Count ?? 0}");
+                    var franja = panoramica.Bandas;
+                    Anotar(franja != null && Math.Abs(franja.Arriba - 0.128) < 0.03 && Math.Abs(franja.Abajo - 0.128) < 0.03 && franja.Izquierda + franja.Derecha < 0.02,
+                        "bandas del archivo detectadas: " + (franja?.Texto ?? "ninguna"));
+                    motor.FijarEncuadreGeneral(Encuadre.SinBandas);
+                    motor.Lanzar(panoramica);
+                    Anotar(await Hasta(() => motor.EsVideo && motor.Tiempo > 1 && motor.RecorteActual != null, 10),
+                        $"vídeo sin sus bandas: recorte {motor.RecorteActual ?? "ninguno"}");
+                    await Capturar("5-sin-bandas");
+                    motor.FijarEncuadreGeneral(Encuadre.Llenar);
+                    motor.CambiarAjuste(a => a.Zoom = 1.4);
+                    motor.CambiarAjuste(a => a.X = 1);
+                    await Task.Delay(500);
+                    Anotar(motor.RecorteActual is { } r && r != Encuadres.Geometria(Encuadres.Recorte(640, 360, 1, 16.0 / 9, Encuadre.SinBandas, franja, new Ajuste()), 640, 360),
+                        $"llenar, ampliar y mover en vivo: recorte {motor.RecorteActual}");
+                    await Capturar("6-llenar-zoom");
+                    motor.VolverAlFondo();
+                    motor.RestablecerAjuste();
+                    motor.FijarEncuadreGeneral(Encuadre.Completa);
+                }
+
+                // Imagen de prueba y márgenes
+                motor.CambiarAjuste(a =>
+                {
+                    a.MargenIzquierda = 0.1;
+                    a.MargenAbajo = 0.15;
+                });
+                motor.AlternarPrueba();
+                Anotar(motor.Prueba && Math.Abs(motor.Funcion.Ajuste.MargenIzquierda - 0.1) < 0.001, "imagen de prueba en pantalla, con márgenes");
+                await Capturar("7-prueba-margenes");
+                motor.AlternarPrueba();
+                motor.RestablecerAjuste();
+                Anotar(!motor.Prueba && !motor.Funcion.Ajuste.HayMargenes, "imagen de prueba retirada y ajuste restablecido");
+
                 // Mensaje guardado, recorte y encadenado
                 motor.AgregarMensaje("Conversatorio con el equipo");
                 var mensaje = motor.Piezas.LastOrDefault();
                 Anotar(mensaje?.Tipo == TipoPieza.Texto, "mensaje añadido a la lista");
                 if (mensaje != null)
                 {
-                    motor.Mover(video, -1);
-                    motor.Mover(mensaje, -1);
+                    motor.MoverA(mensaje, motor.Piezas.IndexOf(video) + 1);
                     Anotar(motor.Piezas.IndexOf(mensaje) == motor.Piezas.IndexOf(video) + 1, "el mensaje queda justo detrás del vídeo");
                     motor.Lanzar(video);
                     await Hasta(() => motor.EsVideo && motor.Tiempo > 1.2, 10);
@@ -204,7 +256,14 @@ public static class Pruebas
                 ventana.CerrarSalida();
                 await Task.Delay(600);
                 Anotar(!ventana.SalidaAbierta && !motor.EsVideo, "cerrar la salida con un vídeo en marcha lo detiene sin problemas");
+                motor.Seleccionar(video);
+                await Hasta(() => !motor.SacandoFotogramas.Contains(video.Id) && motor.Fotogramas.ContainsKey(video.Id), 40);
+                await Task.Delay(300);
                 await Capturar("4-control");
+                ventana.AbrirAjustes();
+                await Task.Delay(1500);
+                await Capturar("8-ajustes");
+                ventana.CerrarAjustes();
                 motor.FijarColorFondo(null);
                 Anotar(true, "FIN");
             }

@@ -320,9 +320,11 @@ public static class Dialogos
             bloque.Children.Add(new TextBlock { Text = texto, FontSize = 12, Foreground = Paleta.Tenue, TextWrapping = TextWrapping.Wrap });
             ocultas.Children.Add(bloque);
         }
-        Oculta("Menú ··· de cada pieza", "Subir y bajar (también se puede arrastrar), subtítulos .srt, empezar o terminar siempre en un punto, lanzar sola la siguiente y lanzar desde el principio.");
+        Oculta("Menú ··· de cada pieza", "Encuadre propio, subir y bajar (también se puede arrastrar), subtítulos .srt, empezar o terminar siempre en un punto, lanzar sola la siguiente y lanzar desde el principio.");
         Oculta("Botón «Seguir 12:34»", "Aparece cuando un vídeo se cortó: continúa donde se quedó. Para empezarlo de cero, usa el menú ···.");
-        Oculta("Miniatura de cada pieza", "Púlsala para ver fotogramas del vídeo, su tamaño real y su duración, sin proyectarlo.");
+        Oculta("Miniatura de cada pieza", "Pasa el ratón por encima para recorrer el vídeo. Púlsala para ver sus fotogramas en grande, su tamaño real y su duración, sin proyectarlo.");
+        Oculta("Tira de fotogramas", "Al seleccionar un vídeo aparecen seis fotogramas debajo. Pulsa uno para lanzar el vídeo desde ese punto.");
+        Oculta("Botón Ajustar proyección", "Imagen de prueba, pantalla de salida, encuadre (completa, llenar o quitar las bandas del archivo), tamaño, posición y márgenes.");
         Oculta("Botón Función", "Guardar y abrir funciones, y reunir todos los archivos en una carpeta para no depender de un USB.");
 
         var columnas = new Grid { ColumnDefinitions = new ColumnDefinitions("*,24,*") };
