@@ -1,5 +1,7 @@
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
@@ -82,6 +84,97 @@ public static class Dialogos
         panel.Children.Add(botones);
         ventana.Content = panel;
         return await ventana.ShowDialog<bool?>(propietaria) == true;
+    }
+
+    private static readonly (string Nombre, string Hex)[] ColoresDeFondo =
+    {
+        ("Negro", "#000000"), ("Gris carbón", "#2B2B2B"), ("Gris", "#6E6E6E"), ("Gris claro", "#BDBDBD"),
+        ("Blanco", "#FFFFFF"), ("Crema", "#F1EDDF"), ("Azul noche", "#0E1A2B"), ("Azul", "#1F4E79"),
+        ("Verde selva", "#10201B"), ("Verde", "#2F5D3A"), ("Lima", "#D2D25A"), ("Mostaza", "#C9A227"),
+        ("Naranja", "#D2691E"), ("Rojo", "#8C1C13"), ("Burdeos", "#3A0E14"), ("Marrón", "#4A3020"),
+    };
+
+    /// Elige el color del fondo entre vídeos. Devuelve "#RRGGBB", o null si se cancela.
+    public static async Task<string?> ElegirColor(Window propietaria, Color actual)
+    {
+        var ventana = Base("Color de fondo", 460);
+        var elegido = actual;
+        var muestra = new Border { Height = 64, CornerRadius = new CornerRadius(6), BorderBrush = Paleta.Panel, BorderThickness = new Thickness(1) };
+        var codigo = new TextBox { FontFamily = Paleta.Mono, FontSize = 14, Width = 120, MaxLength = 7 };
+        var avisoCodigo = new TextBlock { FontSize = 12, Foreground = Paleta.Tenue, VerticalAlignment = VerticalAlignment.Center };
+        var escribiendo = false;
+
+        void Fijar(Color color, bool desdeCodigo = false)
+        {
+            elegido = color;
+            muestra.Background = new SolidColorBrush(color);
+            if (!desdeCodigo)
+            {
+                escribiendo = true;
+                codigo.Text = $"#{color.R:X2}{color.G:X2}{color.B:X2}";
+                escribiendo = false;
+            }
+            avisoCodigo.Text = "";
+        }
+
+        var rejilla = new UniformGrid { Columns = 8 };
+        foreach (var (nombre, hex) in ColoresDeFondo)
+        {
+            var color = Color.Parse(hex);
+            var boton = new Button
+            {
+                Width = 44,
+                Height = 34,
+                Margin = new Thickness(0, 0, 6, 6),
+                Background = new SolidColorBrush(color),
+                BorderBrush = Paleta.Panel,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(5),
+            };
+            ToolTip.SetTip(boton, nombre);
+            AutomationProperties.SetName(boton, nombre);
+            boton.Click += (_, _) => Fijar(color);
+            rejilla.Children.Add(boton);
+        }
+
+        codigo.TextChanged += (_, _) =>
+        {
+            if (escribiendo) return;
+            var valido = Formatos.ColorValido(codigo.Text) ?? (codigo.Text?.Trim().TrimStart('#') is "000000" ? "#000000" : null);
+            if (valido != null) Fijar(Color.Parse(valido), desdeCodigo: true);
+            else avisoCodigo.Text = "Escribe seis cifras, por ejemplo #1F4E79";
+        };
+        var filaCodigo = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        filaCodigo.Children.Add(new TextBlock { Text = "Otro color:", FontSize = 13, VerticalAlignment = VerticalAlignment.Center });
+        filaCodigo.Children.Add(codigo);
+        filaCodigo.Children.Add(avisoCodigo);
+
+        var si = Boton("Usar este color", Paleta.Lima, oscuro: true, grande: true);
+        var no = Boton("Cancelar", Paleta.Panel, grande: true);
+        si.IsDefault = true;
+        no.IsCancel = true;
+        si.Click += (_, _) => ventana.Close($"#{elegido.R:X2}{elegido.G:X2}{elegido.B:X2}");
+        no.Click += (_, _) => ventana.Close(null);
+        var botones = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, HorizontalAlignment = HorizontalAlignment.Right };
+        botones.Children.Add(no);
+        botones.Children.Add(si);
+
+        var panel = new StackPanel { Margin = new Thickness(22), Spacing = 12 };
+        panel.Children.Add(new TextBlock { Text = "Color de fondo", FontSize = 17, FontWeight = FontWeight.Bold });
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Es lo que ve el público entre vídeos. Si también hay imagen de fondo, el color rellena lo que la imagen no cubre. El botón NEGRO sigue tapando en negro.",
+            FontSize = 13,
+            Foreground = Paleta.Tenue,
+            TextWrapping = TextWrapping.Wrap,
+        });
+        panel.Children.Add(muestra);
+        panel.Children.Add(rejilla);
+        panel.Children.Add(filaCodigo);
+        panel.Children.Add(botones);
+        ventana.Content = panel;
+        Fijar(actual);
+        return await ventana.ShowDialog<string?>(propietaria);
     }
 
     public static async Task<string?> PedirTexto(Window propietaria, string titulo, string valor)
@@ -194,7 +287,7 @@ public static class Dialogos
             fila.Children.Add(textos);
             panel.Children.Add(fila);
         }
-        Paso("1", "Prepara la lista", "Pulsa Añadir o arrastra aquí tus vídeos e imágenes. Cámbialos de orden con el menú ··· de cada pieza. Puedes tocar la lista en cualquier momento, también mientras se proyecta.");
+        Paso("1", "Prepara la lista", "Pulsa Añadir o arrastra aquí tus vídeos e imágenes. Cámbialos de orden arrastrándolos con el ratón dentro de la lista. Puedes tocar la lista en cualquier momento, también mientras se proyecta.");
         Paso("2", "Abre la salida", "Conecta el proyector como pantalla ampliada (no duplicada) y pulsa «Abrir salida». El público verá negro, o tu imagen de fondo, hasta que lances algo.");
         Paso("3", "Lanza cada pieza", "Pulsa Lanzar en la pieza que toque. Cuando un vídeo termina, la pantalla vuelve sola al fondo. El botón NEGRO tapa la pantalla al instante sin perder el punto.");
         panel.Children.Add(new Border { Height = 1, Background = Paleta.Panel });
@@ -227,7 +320,7 @@ public static class Dialogos
             bloque.Children.Add(new TextBlock { Text = texto, FontSize = 12, Foreground = Paleta.Tenue, TextWrapping = TextWrapping.Wrap });
             ocultas.Children.Add(bloque);
         }
-        Oculta("Menú ··· de cada pieza", "Subir y bajar, subtítulos .srt, empezar o terminar siempre en un punto, lanzar sola la siguiente y lanzar desde el principio.");
+        Oculta("Menú ··· de cada pieza", "Subir y bajar (también se puede arrastrar), subtítulos .srt, empezar o terminar siempre en un punto, lanzar sola la siguiente y lanzar desde el principio.");
         Oculta("Botón «Seguir 12:34»", "Aparece cuando un vídeo se cortó: continúa donde se quedó. Para empezarlo de cero, usa el menú ···.");
         Oculta("Miniatura de cada pieza", "Púlsala para ver fotogramas del vídeo, su tamaño real y su duración, sin proyectarlo.");
         Oculta("Botón Función", "Guardar y abrir funciones, y reunir todos los archivos en una carpeta para no depender de un USB.");

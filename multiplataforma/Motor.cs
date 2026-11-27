@@ -832,11 +832,14 @@ public sealed class Motor : IDisposable
         AvisarLista();
     }
 
-    public void Mover(Pieza pieza, int salto)
+    public void Mover(Pieza pieza, int salto) => MoverA(pieza, Piezas.IndexOf(pieza) + salto);
+
+    /// Lleva la pieza al puesto `destino` (contado desde 0), desplazando las demás.
+    public void MoverA(Pieza pieza, int destino)
     {
         var i = Piezas.IndexOf(pieza);
-        var j = i + salto;
-        if (i < 0 || j < 0 || j >= Piezas.Count) return;
+        var j = destino;
+        if (i < 0 || j < 0 || j >= Piezas.Count || i == j) return;
         Piezas.RemoveAt(i);
         Piezas.Insert(j, pieza);
         GuardarPronto();
@@ -1136,6 +1139,17 @@ public sealed class Motor : IDisposable
         Funcion.RutaFondo = ruta;
         CargarFondo();
         if (Contenido == Contenido.Fondo) ImagenVisible = imagenFondo;
+        GuardarPronto();
+        Avisar();
+    }
+
+    /// Color del fondo entre vídeos; negro si no se ha elegido otro.
+    public Avalonia.Media.Color ColorDeFondo =>
+        Funcion.ColorFondo is { } hex && Avalonia.Media.Color.TryParse(hex, out var c) ? c : Avalonia.Media.Colors.Black;
+
+    public void FijarColorFondo(string? hex)
+    {
+        Funcion.ColorFondo = Formatos.ColorValido(hex);
         GuardarPronto();
         Avisar();
     }

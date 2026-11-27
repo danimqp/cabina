@@ -38,6 +38,13 @@ public sealed class VentanaControl : Window
     private readonly TextBlock nota = new();
     private readonly Button botonComprobar = new();
     private readonly StackPanel filas = new() { Spacing = 1 };
+    private readonly ScrollViewer desplazamientoLista = new();
+    private readonly Canvas capaArrastre = new() { IsHitTestVisible = false };
+    private readonly Border lineaDestino = new() { Height = 3, CornerRadius = new CornerRadius(2), Background = Paleta.Lima, IsVisible = false };
+    // Arrastre de piezas dentro de la lista
+    private Pieza? piezaArrastrada;
+    private Point inicioArrastre;
+    private bool arrastreActivo;
     private readonly TextBlock vacio = new();
     // Proyección
     private readonly Image previa = new() { Stretch = Stretch.Uniform };
@@ -67,6 +74,8 @@ public sealed class VentanaControl : Window
     private readonly Slider volumenMusica = new();
     private readonly TextBlock nombreFondo = new();
     private readonly Button botonQuitarFondo = new();
+    private readonly Button botonColorFondo = new();
+    private readonly Border muestraColorFondo = new();
     private readonly ComboBox salidaSonido = new();
 
     public bool SalidaAbierta => salida != null;
@@ -272,7 +281,7 @@ public sealed class VentanaControl : Window
         arriba.Children.Add(horaFin);
         arriba.Children.Add(nota);
 
-        vacio.Text = "La lista está vacía.\n\nPulsa Añadir o arrastra aquí tus vídeos e imágenes.\nSe admite casi cualquier formato: MP4, MOV, MKV, AVI, WMV…";
+        vacio.Text = "La lista está vacía.\n\nPulsa Añadir o arrastra aquí tus vídeos e imágenes.\nLuego ordénalos arrastrándolos con el ratón.\nSe admite casi cualquier formato: MP4, MOV, MKV, AVI, WMV…";
         vacio.TextWrapping = TextWrapping.Wrap;
         vacio.TextAlignment = TextAlignment.Center;
         vacio.Foreground = Paleta.Tenue;
@@ -280,7 +289,17 @@ public sealed class VentanaControl : Window
         vacio.Margin = new Thickness(30, 60, 30, 0);
 
         var cuerpo = new Panel();
-        cuerpo.Children.Add(new ScrollViewer { Content = filas });
+        capaArrastre.Children.Add(lineaDestino);
+        var contenidoLista = new Panel();
+        contenidoLista.Children.Add(filas);
+        contenidoLista.Children.Add(capaArrastre);
+        desplazamientoLista.Content = contenidoLista;
+        filas.Background = Brushes.Transparent;
+        filas.AddHandler(PointerPressedEvent, AlPulsarEnLista);
+        filas.AddHandler(PointerMovedEvent, AlMoverEnLista);
+        filas.AddHandler(PointerReleasedEvent, AlSoltarEnLista);
+        filas.AddHandler(PointerCaptureLostEvent, (_, _) => TerminarArrastre());
+        cuerpo.Children.Add(desplazamientoLista);
         cuerpo.Children.Add(vacio);
 
         var pie = Creditos();
@@ -549,11 +568,29 @@ public sealed class VentanaControl : Window
         var botonesFondo = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         botonesFondo.Children.Add(elegirFondo);
         botonesFondo.Children.Add(botonQuitarFondo);
+        muestraColorFondo.Width = 16;
+        muestraColorFondo.Height = 16;
+        muestraColorFondo.CornerRadius = new CornerRadius(3);
+        muestraColorFondo.BorderBrush = Paleta.Tenue;
+        muestraColorFondo.BorderThickness = new Thickness(1);
+        var contenidoColor = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        contenidoColor.Children.Add(muestraColorFondo);
+        contenidoColor.Children.Add(new TextBlock { Text = "Color…", VerticalAlignment = VerticalAlignment.Center });
+        botonColorFondo.Content = contenidoColor;
+        Dialogos.Estilo(botonColorFondo, Paleta.Panel);
+        botonColorFondo.HorizontalAlignment = HorizontalAlignment.Left;
+        botonColorFondo.Click += async (_, _) =>
+        {
+            var hex = await Dialogos.ElegirColor(this, motor.ColorDeFondo);
+            if (hex != null) motor.FijarColorFondo(hex);
+        };
+        ToolTip.SetTip(botonColorFondo, "Color que ve el público entre vídeos");
         var fondo = new StackPanel { Spacing = 5, Margin = new Thickness(16, 0, 0, 0) };
         fondo.Children.Add(Dialogos.Rotulo("FONDO ENTRE VÍDEOS"));
         fondo.Children.Add(Nombre(nombreFondo));
         fondo.Children.Add(Detalle("Se ve al terminar un vídeo"));
         fondo.Children.Add(botonesFondo);
+        fondo.Children.Add(botonColorFondo);
 
         // Salida de sonido
         salidaSonido.HorizontalAlignment = HorizontalAlignment.Stretch;
@@ -1066,15 +1103,27 @@ public sealed class VentanaControl : Window
         mas.Flyout = menu;
         ToolTip.SetTip(mas, "Mover, renombrar, subtítulos, recorte y más");
 
-        var rejilla = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto,*,Auto,Auto"), Margin = new Thickness(14, 8, 8, 8) };
+        // Asa: indica que la fila se puede arrastrar
+        var asa = new TextBlock
+        {
+            Text = "⋮⋮",
+            FontSize = 13,
+            Foreground = Paleta.Tenue,
+            Opacity = 0.6,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 6, 0),
+        };
+        var rejilla = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto,Auto,*,Auto,Auto"), Margin = new Thickness(8, 8, 8, 8) };
+        rejilla.Children.Add(asa);
+        Grid.SetColumn(indice, 1);
         rejilla.Children.Add(indice);
-        Grid.SetColumn(ver, 1);
+        Grid.SetColumn(ver, 2);
         rejilla.Children.Add(ver);
-        Grid.SetColumn(textos, 2);
+        Grid.SetColumn(textos, 3);
         rejilla.Children.Add(textos);
-        Grid.SetColumn(lanzar, 3);
+        Grid.SetColumn(lanzar, 4);
         rejilla.Children.Add(lanzar);
-        Grid.SetColumn(mas, 4);
+        Grid.SetColumn(mas, 5);
         rejilla.Children.Add(mas);
 
         var marco = new Border
@@ -1083,13 +1132,122 @@ public sealed class VentanaControl : Window
             Background = enPantalla ? Paleta.LimaSuave : seleccionada ? Paleta.Panel : Paleta.Pizarra,
             Opacity = pasada ? 0.55 : 1,
         };
-        marco.PointerPressed += (_, _) =>
+        ToolTip.SetTip(marco, "Arrastra para cambiar el orden");
+        return marco;
+    }
+
+    // =================== Arrastrar dentro de la lista ===================
+    // Se hace a mano (sin el arrastre del sistema) para no confundirlo con soltar archivos desde fuera.
+
+    private const double UmbralArrastre = 6;
+
+    private void AlPulsarEnLista(object? sender, PointerPressedEventArgs e)
+    {
+        // Los botones de la fila (Lanzar, miniatura, ···) ya gestionan su propia pulsación y no llegan aquí.
+        if (!e.GetCurrentPoint(filas).Properties.IsLeftButtonPressed) return;
+        var posicion = e.GetPosition(filas);
+        var i = FilaEn(posicion.Y);
+        if (i < 0 || i >= motor.Piezas.Count) return;
+        var pieza = motor.Piezas[i];
+        piezaArrastrada = pieza;
+        inicioArrastre = posicion;
+        arrastreActivo = false;
+        e.Pointer.Capture(filas);
+        e.Handled = true;
+        if (motor.Seleccion != pieza.Id)
         {
-            if (motor.Seleccion == pieza.Id) return;
             motor.Seleccion = pieza.Id;
             RehacerLista();
-        };
-        return marco;
+        }
+    }
+
+    private void AlMoverEnLista(object? sender, PointerEventArgs e)
+    {
+        if (piezaArrastrada == null) return;
+        var posicion = e.GetPosition(filas);
+        if (!arrastreActivo)
+        {
+            if (Math.Abs(posicion.Y - inicioArrastre.Y) < UmbralArrastre) return;
+            arrastreActivo = true;
+            filas.Cursor = new Cursor(StandardCursorType.SizeNorthSouth);
+        }
+
+        // Atenúa la fila que se lleva (la lista puede rehacerse mientras tanto)
+        var origen = motor.Piezas.IndexOf(piezaArrastrada);
+        for (var k = 0; k < filas.Children.Count && k < motor.Piezas.Count; k++)
+        {
+            var opacidad = k == origen ? 0.4 : (motor.Piezas[k].Pasada && motor.EnPantalla != motor.Piezas[k] ? 0.55 : 1);
+            filas.Children[k].Opacity = opacidad;
+        }
+
+        // Línea donde caerá
+        var hueco = HuecoEn(posicion.Y);
+        var y = hueco < filas.Children.Count ? filas.Children[hueco].Bounds.Top : filas.Children.Count > 0 ? filas.Children[^1].Bounds.Bottom : 0;
+        lineaDestino.Width = Math.Max(0, filas.Bounds.Width - 16);
+        Canvas.SetLeft(lineaDestino, 8);
+        Canvas.SetTop(lineaDestino, Math.Max(0, y - 2));
+        lineaDestino.IsVisible = true;
+
+        // Desplaza la lista si se arrastra cerca del borde
+        var enVista = e.GetPosition(desplazamientoLista).Y;
+        const double borde = 36;
+        double salto = 0;
+        if (enVista < borde) salto = -14;
+        else if (enVista > desplazamientoLista.Bounds.Height - borde) salto = 14;
+        if (salto != 0)
+        {
+            var maximo = Math.Max(0, desplazamientoLista.Extent.Height - desplazamientoLista.Viewport.Height);
+            var nuevo = Math.Clamp(desplazamientoLista.Offset.Y + salto, 0, maximo);
+            desplazamientoLista.Offset = new Vector(desplazamientoLista.Offset.X, nuevo);
+        }
+    }
+
+    private void AlSoltarEnLista(object? sender, PointerReleasedEventArgs e)
+    {
+        var pieza = piezaArrastrada;
+        var activo = arrastreActivo;
+        var hueco = HuecoEn(e.GetPosition(filas).Y);
+        TerminarArrastre();
+        e.Pointer.Capture(null);
+        if (pieza == null || !activo) return;
+        var origen = motor.Piezas.IndexOf(pieza);
+        if (origen < 0) return;
+        var destino = hueco > origen ? hueco - 1 : hueco;
+        if (destino != origen) motor.MoverA(pieza, destino);
+        else RehacerLista();
+    }
+
+    private void TerminarArrastre()
+    {
+        if (piezaArrastrada == null) return;
+        var estabaActivo = arrastreActivo;
+        piezaArrastrada = null;
+        arrastreActivo = false;
+        lineaDestino.IsVisible = false;
+        filas.Cursor = null;
+        if (estabaActivo) Dispatcher.UIThread.Post(RehacerLista);
+    }
+
+    /// Índice de la fila que hay a la altura `y`, o -1.
+    private int FilaEn(double y)
+    {
+        for (var k = 0; k < filas.Children.Count; k++)
+        {
+            var b = filas.Children[k].Bounds;
+            if (y >= b.Top && y < b.Bottom + filas.Spacing) return k;
+        }
+        return -1;
+    }
+
+    /// Hueco entre filas (de 0 a n) más cercano a la altura `y`.
+    private int HuecoEn(double y)
+    {
+        for (var k = 0; k < filas.Children.Count; k++)
+        {
+            var b = filas.Children[k].Bounds;
+            if (y < b.Top + b.Height / 2) return k;
+        }
+        return filas.Children.Count;
     }
 
     private static string DetalleDe(Pieza pieza, bool enPantalla, bool pasada, bool falta, Problema? problema)
@@ -1153,6 +1311,8 @@ public sealed class VentanaControl : Window
                 else if (motor.EnPantalla != null && motor.MiniaturasDeLista.TryGetValue(motor.EnPantalla.Id, out var respaldo)) imagen = respaldo;
             }
             if (!ReferenceEquals(previa.Source, imagen)) previa.Source = imagen;
+            var colorPrevia = motor.Contenido == Contenido.Fondo && !motor.Negro ? motor.ColorDeFondo : Colors.Black;
+            if ((marcoPrevia.Background as ISolidColorBrush)?.Color != colorPrevia) marcoPrevia.Background = new SolidColorBrush(colorPrevia);
             var algo = (motor.EsVideo || motor.EsImagen) && !motor.Negro;
             marcoPrevia.BorderBrush = algo ? Paleta.Lima : Paleta.Panel;
 
@@ -1209,7 +1369,10 @@ public sealed class VentanaControl : Window
             var nivelMusica = Math.Clamp(motor.Funcion.VolumenMusica, 0, 1);
             if (Math.Abs(volumenMusica.Value - nivelMusica) > 0.001) volumenMusica.Value = nivelMusica;
 
-            nombreFondo.Text = motor.Funcion.RutaFondo == null ? "Negro" : Path.GetFileName(motor.Funcion.RutaFondo);
+            nombreFondo.Text = motor.Funcion.RutaFondo != null ? Path.GetFileName(motor.Funcion.RutaFondo)
+                : motor.Funcion.ColorFondo != null ? "Color " + motor.Funcion.ColorFondo : "Negro";
+            var colorFondo = motor.ColorDeFondo;
+            if ((muestraColorFondo.Background as ISolidColorBrush)?.Color != colorFondo) muestraColorFondo.Background = new SolidColorBrush(colorFondo);
             botonQuitarFondo.IsVisible = motor.Funcion.RutaFondo != null;
             RefrescarSalidasDeSonido();
 
