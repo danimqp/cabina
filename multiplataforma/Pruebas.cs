@@ -68,6 +68,19 @@ public static class Pruebas
                 Anotar(!motor.Comprobando && !motor.Problemas.Values.Any(p => p.Grave) && motor.Faltantes.Count == 0,
                     "comprobación: " + (motor.Nota ?? motor.Aviso ?? "sin resultado"));
 
+                // Orden de la lista: lo mismo que hace el arrastre con el ratón
+                var cabeza = motor.Piezas[0];
+                motor.MoverA(cabeza, motor.Piezas.Count - 1);
+                var alFinal = motor.Piezas[^1] == cabeza;
+                motor.MoverA(cabeza, 0);
+                Anotar(alFinal && motor.Piezas[0] == cabeza, "mover una pieza a otro puesto de la lista y devolverla");
+
+                // Color de fondo entre vídeos
+                motor.FijarColorFondo("#1f4e79");
+                Anotar(motor.Funcion.ColorFondo == "#1F4E79" && Formatos.ColorValido("rojo") == null
+                       && Funcion.DeJson(motor.Funcion.AJson()).ColorFondo == "#1F4E79",
+                    "color de fondo elegido, validado y guardado en la función");
+
                 // Vídeo: la salida se abre sola
                 motor.Lanzar(video);
                 Anotar(await Hasta(() => motor.EsVideo && motor.Tiempo > 1.5, 10) && motor.Reproduciendo,
@@ -192,6 +205,7 @@ public static class Pruebas
                 await Task.Delay(600);
                 Anotar(!ventana.SalidaAbierta && !motor.EsVideo, "cerrar la salida con un vídeo en marcha lo detiene sin problemas");
                 await Capturar("4-control");
+                motor.FijarColorFondo(null);
                 Anotar(true, "FIN");
             }
             catch (Exception error)

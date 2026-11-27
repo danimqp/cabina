@@ -17,10 +17,10 @@ La primera vez, Windows («Más información» > «Ejecutar de todas formas») y
 
 ## Qué hace
 
-- Lista de vídeos, imágenes y mensajes de texto; se edita también mientras se proyecta.
+- Lista de vídeos, imágenes y mensajes de texto; se ordena arrastrando con el ratón y se edita también mientras se proyecta.
 - Cada pieza se lanza a mano; al terminar un vídeo la pantalla vuelve sola al fondo.
 - NEGRO, pausa, barra de tiempo, volumen general y por vídeo, seguir donde se cortó.
-- Mensajes rápidos y cuenta atrás; música de espera; imagen de fondo; salida de sonido propia.
+- Mensajes rápidos y cuenta atrás; música de espera; imagen y color de fondo; salida de sonido propia.
 - Subtítulos, recorte de inicio y fin, encadenar piezas, comprobar archivos, reunirlos en una carpeta.
 - Miniaturas y fotogramas de cada pieza; miniatura de lo que ve el público; mini control flotante.
 - Formatos de VLC: MP4, MOV, MKV, AVI, WMV, MPG, WebM…

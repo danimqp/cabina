@@ -14,6 +14,8 @@ public sealed class VentanaSalida : Window
     private readonly Motor motor;
     private readonly VideoView video;
     private readonly Image imagen;
+    private readonly Panel lienzo;
+    private Color colorAplicado = Colors.Black;
 
     public bool EnProyector { get; }
 
@@ -26,7 +28,7 @@ public sealed class VentanaSalida : Window
 
         video = new VideoView { MediaPlayer = motor.Reproductor };
         imagen = new Image { Stretch = Stretch.Uniform, IsVisible = false };
-        var lienzo = new Panel { Background = Brushes.Black };
+        lienzo = new Panel { Background = Brushes.Black };
         lienzo.Children.Add(video);
         lienzo.Children.Add(imagen);
         Content = lienzo;
@@ -64,6 +66,16 @@ public sealed class VentanaSalida : Window
         var fija = !motor.EsVideo && !motor.Negro ? motor.ImagenVisible : null;
         if (!ReferenceEquals(imagen.Source, fija)) imagen.Source = fija;
         if (imagen.IsVisible != (fija != null)) imagen.IsVisible = fija != null;
+
+        // El color elegido solo se ve en el fondo entre vídeos; NEGRO es siempre negro.
+        var color = motor.Contenido == Contenido.Fondo && !motor.Negro ? motor.ColorDeFondo : Colors.Black;
+        if (color != colorAplicado)
+        {
+            colorAplicado = color;
+            var pincel = new SolidColorBrush(color);
+            lienzo.Background = pincel;
+            Background = pincel;
+        }
 
         // No se usa IsVisible: la superficie debe existir siempre para que VLC no abra una ventana propia.
         // Fuera de vídeo se reduce a un punto negro en una esquina.

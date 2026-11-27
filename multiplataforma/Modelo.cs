@@ -43,6 +43,8 @@ public sealed class Funcion
     public string Nombre { get; set; } = "Función sin título";
     public List<Pieza> Piezas { get; set; } = new();
     public string? RutaFondo { get; set; }
+    /// Color del fondo entre vídeos, como "#RRGGBB". Sin valor, negro.
+    public string? ColorFondo { get; set; }
     public double Volumen { get; set; } = 1;
     public List<string> Musica { get; set; } = new();
     public double VolumenMusica { get; set; } = 0.6;
@@ -70,6 +72,7 @@ public sealed class Funcion
 
         Nombre = Corto(Nombre, 200);
         Volumen = Unidad(Volumen);
+        ColorFondo = Formatos.ColorValido(ColorFondo);
         VolumenMusica = Unidad(VolumenMusica);
         Musica = (Musica ?? new()).Where(r => !string.IsNullOrWhiteSpace(r)).Take(500).ToList();
         var vistos = new HashSet<Guid>();
@@ -109,6 +112,15 @@ public static class Formatos
 
     public static readonly string[] Imagen = { "jpg", "jpeg", "png", "bmp", "webp" };
     public static readonly string[] Audio = { "mp3", "m4a", "aac", "wav", "aiff", "aif", "ogg", "flac", "wma" };
+
+    /// "#1f4e79", "1F4E79" → "#1F4E79". Cualquier otra cosa → null (negro).
+    public static string? ColorValido(string? texto)
+    {
+        if (string.IsNullOrWhiteSpace(texto)) return null;
+        var limpio = texto.Trim().TrimStart('#').ToUpperInvariant();
+        if (limpio.Length != 6 || !limpio.All(Uri.IsHexDigit)) return null;
+        return limpio == "000000" ? null : "#" + limpio;
+    }
 
     public static string Extension(string ruta) => Path.GetExtension(ruta).TrimStart('.').ToLowerInvariant();
 
