@@ -162,8 +162,9 @@ public static class Pruebas
                 var llenar = Encuadres.Recorte(1920, 1080, 1, 16.0 / 9, Encuadre.Llenar, bandasDePrueba, new Ajuste());
                 var sinBandas = Encuadres.Recorte(1920, 1080, 1, 16.0 / 9, Encuadre.SinBandas, bandasDePrueba, new Ajuste());
                 var completa = Encuadres.Recorte(1920, 1080, 1, 16.0 / 9, Encuadre.Completa, bandasDePrueba, new Ajuste());
-                Anotar(llenar is { Ancho: >= 1455 and <= 1463, Alto: >= 819 and <= 823 } && sinBandas is { Ancho: 1920, Alto: >= 819 and <= 823 } && completa == null,
-                    $"cálculo del encuadre: llenar {Encuadres.Geometria(llenar)} · sin bandas {Encuadres.Geometria(sinBandas)} · completa entera");
+                Anotar(llenar is { Ancho: >= 1455 and <= 1463, Alto: >= 819 and <= 823 } && sinBandas is { Ancho: 1920, Alto: >= 819 and <= 823 } && completa == null
+                       && Encuadres.Geometria(sinBandas, 1920, 1080) == "0+130+0+129",
+                    $"cálculo del encuadre: llenar {Encuadres.Geometria(llenar, 1920, 1080)} · sin bandas {Encuadres.Geometria(sinBandas, 1920, 1080)} · completa entera");
 
                 // Vídeo con bandas negras dentro del archivo
                 var panoramica = motor.Piezas.FirstOrDefault(p => p.Tipo == TipoPieza.Video && p.Ruta.Contains("panoramica"));
@@ -188,7 +189,7 @@ public static class Pruebas
                     motor.CambiarAjuste(a => a.Zoom = 1.4);
                     motor.CambiarAjuste(a => a.X = 1);
                     await Task.Delay(500);
-                    Anotar(motor.RecorteActual is { } r && r != Encuadres.Geometria(Encuadres.Recorte(640, 360, 1, 16.0 / 9, Encuadre.SinBandas, franja, new Ajuste())),
+                    Anotar(motor.RecorteActual is { } r && r != Encuadres.Geometria(Encuadres.Recorte(640, 360, 1, 16.0 / 9, Encuadre.SinBandas, franja, new Ajuste()), 640, 360),
                         $"llenar, ampliar y mover en vivo: recorte {motor.RecorteActual}");
                     await Capturar("6-llenar-zoom");
                     motor.VolverAlFondo();
@@ -215,8 +216,7 @@ public static class Pruebas
                 Anotar(mensaje?.Tipo == TipoPieza.Texto, "mensaje añadido a la lista");
                 if (mensaje != null)
                 {
-                    motor.Mover(video, -1);
-                    motor.Mover(mensaje, -1);
+                    motor.MoverA(mensaje, motor.Piezas.IndexOf(video) + 1);
                     Anotar(motor.Piezas.IndexOf(mensaje) == motor.Piezas.IndexOf(video) + 1, "el mensaje queda justo detrás del vídeo");
                     motor.Lanzar(video);
                     await Hasta(() => motor.EsVideo && motor.Tiempo > 1.2, 10);
@@ -260,6 +260,10 @@ public static class Pruebas
                 await Hasta(() => !motor.SacandoFotogramas.Contains(video.Id) && motor.Fotogramas.ContainsKey(video.Id), 40);
                 await Task.Delay(300);
                 await Capturar("4-control");
+                ventana.AbrirAjustes();
+                await Task.Delay(1500);
+                await Capturar("8-ajustes");
+                ventana.CerrarAjustes();
                 motor.FijarColorFondo(null);
                 Anotar(true, "FIN");
             }

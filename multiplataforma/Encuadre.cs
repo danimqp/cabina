@@ -36,9 +36,9 @@ public sealed class Bandas
     }
 
     public string Texto =>
-        !Hay ? "sin bandas" : (Arriba + Abajo > 0 ? $"arriba y abajo {Math.Round((Arriba + Abajo) * 100)} %" : "")
+        !Hay ? "no tiene" : (Arriba + Abajo > 0 ? $"arriba {Math.Round(Arriba * 100)} % y abajo {Math.Round(Abajo * 100)} %" : "")
             + (Arriba + Abajo > 0 && Izquierda + Derecha > 0 ? " · " : "")
-            + (Izquierda + Derecha > 0 ? $"a los lados {Math.Round((Izquierda + Derecha) * 100)} %" : "");
+            + (Izquierda + Derecha > 0 ? $"izquierda {Math.Round(Izquierda * 100)} % y derecha {Math.Round(Derecha * 100)} %" : "");
 }
 
 /// Ajuste de la sala: tamaño, posición y márgenes de lo que se proyecta.
@@ -120,9 +120,12 @@ public static class Encuadres
         return (w, h, x, y);
     }
 
-    /// Texto que entiende VLC para recortar: "ANCHOxALTO+X+Y".
-    public static string? Geometria((int Ancho, int Alto, int X, int Y)? recorte) =>
-        recorte is { } r ? string.Create(CultureInfo.InvariantCulture, $"{r.Ancho}x{r.Alto}+{r.X}+{r.Y}") : null;
+    /// Texto que entiende VLC para recortar, como píxeles quitados de cada borde: "IZQUIERDA+ARRIBA+DERECHA+ABAJO".
+    /// No se usa la forma "ANCHOxALTO+X+Y": VLC 3 la lee mal (toma ancho y alto como bordes derecho e inferior).
+    public static string? Geometria((int Ancho, int Alto, int X, int Y)? recorte, int ancho, int alto) =>
+        recorte is { } r
+            ? string.Create(CultureInfo.InvariantCulture, $"{r.X}+{r.Y}+{Math.Max(0, ancho - r.X - r.Ancho)}+{Math.Max(0, alto - r.Y - r.Alto)}")
+            : null;
 
     /// Tamaño (en unidades de pantalla) de una imagen fija colocada en una zona, con su zoom.
     public static Size TamanoImagen(Size imagen, Size zona, Encuadre encuadre, double zoom)

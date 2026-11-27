@@ -649,6 +649,8 @@ public sealed class VentanaControl : Window
         ajustes.Show(this);
     }
 
+    public void CerrarAjustes() => ajustes?.Close();
+
     // =================== Salida ===================
 
     public async Task AlternarSalida()
@@ -1240,7 +1242,7 @@ public sealed class VentanaControl : Window
     {
         // Fuera de la construcción de la lista: pedirlos la vuelve a dibujar.
         if (!motor.Fotogramas.ContainsKey(pieza.Id)) Dispatcher.UIThread.Post(() => motor.PedirFotogramas(pieza));
-        var tira = new UniformGrid { Rows = 1, Columns = 6, Margin = new Thickness(42, 0, 12, 10) };
+        var tira = new UniformGrid { Rows = 1, Columns = 6, Margin = new Thickness(42, 0, 18, 10) };
         motor.Fotogramas.TryGetValue(pieza.Id, out var cuadros);
         var sacando = motor.SacandoFotogramas.Contains(pieza.Id);
         if (cuadros == null || cuadros.Count == 0)

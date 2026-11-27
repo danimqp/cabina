@@ -1294,7 +1294,7 @@ public sealed class Motor : IDisposable
         if (tamanoEnPantalla is not { } t) return null;
         var area = AreaSalida;
         var aspecto = area.Width > 0 && area.Height > 0 ? area.Width / area.Height : 16.0 / 9;
-        return Encuadres.Geometria(Encuadres.Recorte(t.Ancho, t.Alto, 1, aspecto, EncuadreDe(pieza), pieza.Bandas, Funcion.Ajuste));
+        return Encuadres.Geometria(Encuadres.Recorte(t.Ancho, t.Alto, 1, aspecto, EncuadreDe(pieza), pieza.Bandas, Funcion.Ajuste), t.Ancho, t.Alto);
     }
 
     private void AplicarEncuadre()

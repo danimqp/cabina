@@ -27,9 +27,8 @@ public sealed class VentanaAjustes : Window
         this.control = control;
         Title = "Ajustar proyección";
         Width = 540;
-        SizeToContent = SizeToContent.Height;
-        MaxHeight = 860;
-        CanResize = false;
+        Height = 760;
+        MinHeight = 400;
         ShowInTaskbar = false;
         Background = Paleta.Pizarra;
         Foreground = Paleta.Papel;
