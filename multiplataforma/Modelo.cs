@@ -26,6 +26,10 @@ public sealed class Pieza
     public double? Fin { get; set; }
     /// Al terminar, lanza sola la pieza siguiente.
     public bool? Encadena { get; set; }
+    /// Encuadre propio; si no tiene, usa el de la función.
+    public Encuadre? Encuadre { get; set; }
+    /// Bandas negras detectadas dentro del archivo.
+    public Bandas? Bandas { get; set; }
 
     [JsonIgnore] public bool Pasada { get; set; }
 
@@ -45,6 +49,9 @@ public sealed class Funcion
     public string? RutaFondo { get; set; }
     /// Color del fondo entre vídeos, como "#RRGGBB". Sin valor, negro.
     public string? ColorFondo { get; set; }
+    /// Encuadre general de la función y ajuste de la sala (tamaño, posición, márgenes).
+    public Encuadre Encuadre { get; set; } = Encuadre.Completa;
+    public Ajuste Ajuste { get; set; } = new();
     public double Volumen { get; set; } = 1;
     public List<string> Musica { get; set; } = new();
     public double VolumenMusica { get; set; } = 0.6;
@@ -73,6 +80,8 @@ public sealed class Funcion
         Nombre = Corto(Nombre, 200);
         Volumen = Unidad(Volumen);
         ColorFondo = Formatos.ColorValido(ColorFondo);
+        if (!Enum.IsDefined(Encuadre)) Encuadre = Encuadre.Completa;
+        Ajuste = (Ajuste ?? new Ajuste()).Saneado();
         VolumenMusica = Unidad(VolumenMusica);
         Musica = (Musica ?? new()).Where(r => !string.IsNullOrWhiteSpace(r)).Take(500).ToList();
         var vistos = new HashSet<Guid>();
@@ -93,10 +102,13 @@ public sealed class Funcion
             p.Fin = Tiempo(p.Fin);
             if (p.Inicio is { } a && p.Fin is { } b && b <= a + 1) p.Fin = null;
             if (p.Volumen is { } v) p.Volumen = Unidad(v);
+            if (p.Encuadre is { } e && !Enum.IsDefined(e)) p.Encuadre = null;
+            p.Bandas = p.Tipo == TipoPieza.Video ? p.Bandas?.Saneadas() : null;
             if (p.Tipo == TipoPieza.Texto)
             {
                 p.Ruta = "";
                 p.Subtitulos = null;
+                p.Encuadre = null;
             }
         }
         return this;

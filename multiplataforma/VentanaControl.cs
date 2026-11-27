@@ -198,6 +198,10 @@ public sealed class VentanaControl : Window
         funcion.Flyout = menu;
         ToolTip.SetTip(funcion, "Guardar, abrir y reunir los archivos de la función");
 
+        var ajustar = Dialogos.Boton("⛶  Ajustar proyección", Paleta.Panel);
+        ajustar.Click += (_, _) => AbrirAjustes();
+        ToolTip.SetTip(ajustar, "Encuadre, tamaño, posición y márgenes de la imagen, imagen de prueba y pantalla de salida");
+
         var ayuda = Dialogos.Boton("?  Ayuda", Paleta.Panel);
         ayuda.Click += (_, _) => Dialogos.Ayuda(this);
 
@@ -210,6 +214,7 @@ public sealed class VentanaControl : Window
 
         var derecha = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, HorizontalAlignment = HorizontalAlignment.Right };
         derecha.Children.Add(funcion);
+        derecha.Children.Add(ajustar);
         derecha.Children.Add(ayuda);
         derecha.Children.Add(estadoSalida);
         derecha.Children.Add(botonSalida);
@@ -281,7 +286,7 @@ public sealed class VentanaControl : Window
         arriba.Children.Add(horaFin);
         arriba.Children.Add(nota);
 
-        vacio.Text = "La lista está vacía.\n\nPulsa Añadir o arrastra aquí tus vídeos e imágenes.\nLuego ordénalos arrastrándolos con el ratón.\nSe admite casi cualquier formato: MP4, MOV, MKV, AVI, WMV…";
+        vacio.Text = "La lista está vacía.\n\nPulsa Añadir o arrastra aquí tus vídeos e imágenes.\nLuego ordénalos arrastrándolos con el ratón.\nAl seleccionar un vídeo verás sus fotogramas.\nSe admite casi cualquier formato: MP4, MOV, MKV, AVI, WMV…";
         vacio.TextWrapping = TextWrapping.Wrap;
         vacio.TextAlignment = TextAlignment.Center;
         vacio.Foreground = Paleta.Tenue;
@@ -628,6 +633,22 @@ public sealed class VentanaControl : Window
         Dispatcher.UIThread.Post(() => Dialogos.Ayuda(this), DispatcherPriority.Background);
     }
 
+    // =================== Ajustar proyección ===================
+
+    private VentanaAjustes? ajustes;
+
+    public void AbrirAjustes()
+    {
+        if (ajustes != null)
+        {
+            ajustes.Activate();
+            return;
+        }
+        ajustes = new VentanaAjustes(motor, this);
+        ajustes.Closed += (_, _) => ajustes = null;
+        ajustes.Show(this);
+    }
+
     // =================== Salida ===================
 
     public async Task AlternarSalida()
@@ -682,7 +703,43 @@ public sealed class VentanaControl : Window
         var todas = Screens.All;
         if (todas.Count < 2) return null;
         var propia = Screens.ScreenFromWindow(this) ?? Screens.Primary;
+        var elegida = Motor.LeerPreferencia("pantallaSalida");
+        if (elegida != null && todas.FirstOrDefault(p => ClaveDePantalla(p) == elegida && (propia == null || p.Bounds != propia.Bounds)) is { } preferida)
+        {
+            return preferida;
+        }
         return todas.FirstOrDefault(p => propia == null || p.Bounds != propia.Bounds);
+    }
+
+    public static string ClaveDePantalla(Screen pantalla) =>
+        $"{pantalla.Bounds.X},{pantalla.Bounds.Y},{pantalla.Bounds.Width},{pantalla.Bounds.Height}";
+
+    /// Pantallas para elegir la salida: (clave, nombre, es la del operador, es la de la salida ahora).
+    public List<(string Clave, string Nombre, bool Propia, bool EnUso)> PantallasDisponibles()
+    {
+        var lista = new List<(string, string, bool, bool)>();
+        var propia = Screens.ScreenFromWindow(this) ?? Screens.Primary;
+        var actual = salida != null && salida.EnProyector ? Screens.ScreenFromWindow(salida) : null;
+        var n = 0;
+        foreach (var p in Screens.All)
+        {
+            n++;
+            var esPropia = propia != null && p.Bounds == propia.Bounds;
+            var nombre = $"Pantalla {n} · {p.Bounds.Width} × {p.Bounds.Height}" + (esPropia ? " (la de este control)" : "");
+            lista.Add((ClaveDePantalla(p), nombre, esPropia, actual != null && p.Bounds == actual.Bounds));
+        }
+        return lista;
+    }
+
+    /// Guarda la pantalla elegida y, si la salida está abierta y no hay vídeo, la mueve ya.
+    public bool ElegirPantallaDeSalida(string? clave)
+    {
+        Motor.GuardarPreferencia("pantallaSalida", clave);
+        if (salida == null) return true;
+        if (motor.EsVideo) return false;
+        CerrarSalida();
+        AbrirSalida();
+        return true;
     }
 
     private async void AlCerrar(object? sender, WindowClosingEventArgs e)
@@ -1052,7 +1109,26 @@ public sealed class VentanaControl : Window
             Margin = new Thickness(0, 0, 10, 0),
         };
         ver.Click += (_, _) => Dialogos.Previa(this, motor, pieza);
-        ToolTip.SetTip(ver, "Ver fotogramas de esta pieza sin proyectarla");
+        ToolTip.SetTip(ver, pieza.Tipo == TipoPieza.Video
+            ? "Pasa el ratón por encima para recorrer el vídeo; púlsala para ver sus fotogramas en grande"
+            : "Ver esta pieza sin proyectarla");
+        if (pieza.Tipo == TipoPieza.Video && !grave)
+        {
+            // Recorrer: la miniatura enseña el fotograma que corresponde a la posición del ratón.
+            var original = interior;
+            Image? recorrido = null;
+            ver.PointerEntered += (_, _) => motor.PedirFotogramas(pieza);
+            ver.PointerMoved += (_, e) =>
+            {
+                if (!motor.Fotogramas.TryGetValue(pieza.Id, out var cuadros) || cuadros.Count == 0) return;
+                var fraccion = Math.Clamp(e.GetPosition(ver).X / Math.Max(1, ver.Bounds.Width), 0, 0.999);
+                var cuadro = cuadros[(int)(fraccion * cuadros.Count)].Imagen;
+                recorrido ??= new Image { Stretch = Stretch.Uniform };
+                if (!ReferenceEquals(recorrido.Source, cuadro)) recorrido.Source = cuadro;
+                if (!ReferenceEquals(ver.Content, recorrido)) ver.Content = recorrido;
+            };
+            ver.PointerExited += (_, _) => ver.Content = original;
+        }
 
         var nombre = new TextBlock { Text = pieza.Nombre, FontSize = 14, FontWeight = FontWeight.Medium, TextTrimming = TextTrimming.CharacterEllipsis };
         var detalle = new TextBlock
@@ -1094,6 +1170,21 @@ public sealed class VentanaControl : Window
             }
             if (pieza.Inicio != null || pieza.Fin != null) menu.Items.Add(Entrada("Quitar el recorte", () => motor.QuitarRecorte(pieza)));
         }
+        if (pieza.Tipo != TipoPieza.Texto)
+        {
+            var submenu = new MenuItem { Header = "Encuadre" };
+            void Opcion(string texto, Encuadre? valor)
+            {
+                var marca = pieza.Encuadre == valor ? "✓  " : "     ";
+                submenu.Items.Add(Entrada(marca + texto, () => motor.FijarEncuadre(pieza, valor)));
+            }
+            Opcion($"Como la función ({Encuadres.Nombre(motor.Funcion.Encuadre).ToLowerInvariant()})", null);
+            Opcion(Encuadres.Nombre(Encuadre.Completa), Encuadre.Completa);
+            Opcion(Encuadres.Nombre(Encuadre.Llenar), Encuadre.Llenar);
+            if (pieza.Tipo == TipoPieza.Video) Opcion(Encuadres.Nombre(Encuadre.SinBandas), Encuadre.SinBandas);
+            menu.Items.Add(new Separator());
+            menu.Items.Add(submenu);
+        }
         menu.Items.Add(new Separator());
         menu.Items.Add(Entrada("Subir", () => motor.Mover(pieza, -1), numero > 1));
         menu.Items.Add(Entrada("Bajar", () => motor.Mover(pieza, 1), numero < motor.Piezas.Count));
@@ -1126,14 +1217,75 @@ public sealed class VentanaControl : Window
         Grid.SetColumn(mas, 5);
         rejilla.Children.Add(mas);
 
+        Control contenido = rejilla;
+        if (seleccionada && pieza.Tipo == TipoPieza.Video && !grave)
+        {
+            var columna = new StackPanel();
+            columna.Children.Add(rejilla);
+            columna.Children.Add(TiraDeFotogramas(pieza));
+            contenido = columna;
+        }
         var marco = new Border
         {
-            Child = rejilla,
+            Child = contenido,
             Background = enPantalla ? Paleta.LimaSuave : seleccionada ? Paleta.Panel : Paleta.Pizarra,
             Opacity = pasada ? 0.55 : 1,
         };
         ToolTip.SetTip(marco, "Arrastra para cambiar el orden");
         return marco;
+    }
+
+    /// Seis fotogramas del vídeo seleccionado; al pulsar uno, se lanza desde ese punto.
+    private Control TiraDeFotogramas(Pieza pieza)
+    {
+        // Fuera de la construcción de la lista: pedirlos la vuelve a dibujar.
+        if (!motor.Fotogramas.ContainsKey(pieza.Id)) Dispatcher.UIThread.Post(() => motor.PedirFotogramas(pieza));
+        var tira = new UniformGrid { Rows = 1, Columns = 6, Margin = new Thickness(42, 0, 12, 10) };
+        motor.Fotogramas.TryGetValue(pieza.Id, out var cuadros);
+        var sacando = motor.SacandoFotogramas.Contains(pieza.Id);
+        if (cuadros == null || cuadros.Count == 0)
+        {
+            return new TextBlock
+            {
+                Text = sacando ? "Sacando fotogramas…" : "No se pudieron sacar fotogramas de este vídeo",
+                FontSize = 11,
+                Foreground = Paleta.Tenue,
+                Margin = new Thickness(42, 0, 12, 10),
+            };
+        }
+        for (var i = 0; i < 6; i++)
+        {
+            // Se reparten entre los que ya hay; mientras salen, se ven los primeros.
+            var indice = cuadros.Count >= 12 ? i * 2 + 1 : i < cuadros.Count ? i : -1;
+            if (indice < 0 || indice >= cuadros.Count)
+            {
+                tira.Children.Add(new Border { Height = 40, Margin = new Thickness(0, 0, 4, 0), Background = Brushes.Black, CornerRadius = new CornerRadius(3) });
+                continue;
+            }
+            var (segundo, imagen) = cuadros[indice];
+            var boton = new Button
+            {
+                Height = 40,
+                Padding = new Thickness(0),
+                Margin = new Thickness(0, 0, 4, 0),
+                Background = Brushes.Black,
+                CornerRadius = new CornerRadius(3),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                VerticalContentAlignment = VerticalAlignment.Stretch,
+                Content = new Image { Source = imagen, Stretch = Stretch.Uniform },
+            };
+            ToolTip.SetTip(boton, $"Lanzar desde {Formatos.Tiempo(segundo)}");
+            boton.Click += async (_, _) => await PedirLanzarDesde(pieza, segundo);
+            tira.Children.Add(boton);
+        }
+        return tira;
+    }
+
+    private async Task PedirLanzarDesde(Pieza pieza, double segundo)
+    {
+        if (!await ConfirmarCorte($"Cortar y lanzar «{pieza.Nombre}» desde {Formatos.Tiempo(segundo)}")) return;
+        motor.Lanzar(pieza, segundo);
     }
 
     // =================== Arrastrar dentro de la lista ===================
@@ -1157,6 +1309,7 @@ public sealed class VentanaControl : Window
         if (motor.Seleccion != pieza.Id)
         {
             motor.Seleccion = pieza.Id;
+            motor.PedirFotogramas(pieza);
             RehacerLista();
         }
     }
@@ -1263,9 +1416,10 @@ public sealed class VentanaControl : Window
                 if (pieza.Subtitulos != null) texto += " · subt.";
                 if (pieza.Inicio != null || pieza.Fin != null) texto += " · recortado";
                 if (pieza.Encadena == true) texto += " · sigue sola";
+                if (pieza.Encuadre is { } propio) texto += " · " + (propio == Encuadre.Llenar ? "llenar" : propio == Encuadre.SinBandas ? "sin bandas" : "completa");
                 break;
             case TipoPieza.Imagen:
-                texto = "Imagen fija";
+                texto = "Imagen fija" + (pieza.Encuadre == Encuadre.Llenar ? " · llenar" : "");
                 break;
             default:
                 texto = "Mensaje de texto";
